@@ -39,7 +39,7 @@ class Train(nn.Module):
 if __name__ == '__main__':
     os.environ['CUDA_VISIBLE_DEVICES'] = '2'
     num_epochs = 60
-    dataroot = "../dataset/view-synth"
+    dataroot = "../dataset/carla_object"
 
     print("reading hdf5 file...")
     file_list = os.listdir(dataroot)
