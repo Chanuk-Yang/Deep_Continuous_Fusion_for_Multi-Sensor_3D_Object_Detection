@@ -16,22 +16,22 @@ class Train(nn.Module):
     def __init__(self):
         super().__init__()
         self.loss_total = LossTotal()
-        self.model = LidarBackboneNetwork().cuda()
+        self.model = ObjectDetection_DCF().cuda()
         self.loss_value = None
         lr = 0.0001
         beta1 = 0.9
         self.optimizer = optim.Adam(self.model.parameters(), lr=lr, betas=(beta1, 0.999))
 
-    def one_step(self, lidar_voxel, object_data):
-        pred_cls, pred_reg = self.model(lidar_voxel)
+    def one_step(self, lidar_voxel, camera_image, object_data):
+        pred_cls, pred_reg = self.model(lidar_voxel, camera_image)
 
         self.loss_value = self.loss_total(object_data, pred_cls)
         self.optimizer.zero_grad()
         self.loss_value.backward()
         self.optimizer.step()
 
-    def get_loss_value(self, lidar_image, object_data):
-        pred_cls, pred_reg = self.model(lidar_image)
+    def get_loss_value(self, lidar_image, camera_image, object_data):
+        pred_cls, pred_reg = self.model(lidar_image, camera_image)
         self.loss_value = self.loss_total(object_data, pred_cls)
         return self.loss_value.item(), pred_cls, pred_reg
 
@@ -69,7 +69,8 @@ if __name__ == '__main__':
                 object_datas, lidar_data, image_data = getOneStepData(data, id)
                 point_voxel = Voxelization(lidar_data).cuda()
                 lidar_image = getLidarImage(lidar_data).cuda()  # parse lidar data to BEV lidar image
-                training.one_step(point_voxel, object_datas)
+                image_data = torch.tensor(image_data).cuda().permute(2,0,1).unsqueeze(0).type(torch.float)
+                training.one_step(point_voxel, image_data, object_datas)
                 if i % 100 == 0:
                     print("training at ", i, "is processed")
                 if i % 500 == 0:
@@ -78,7 +79,8 @@ if __name__ == '__main__':
                     object_datas, lidar_data, image_data = getOneStepData(data, id)
                     lidar_image = getLidarImage(lidar_data).cuda()  # parse lidar data to BEV lidar image
                     point_voxel = Voxelization(lidar_data).cuda()
-                    loss_value, pred_cls, pred_reg = training.get_loss_value(point_voxel, object_datas)
+                    image_data = torch.tensor(image_data).type(torch.float).cuda().permute(2,0,1).unsqueeze(0)
+                    loss_value, pred_cls, pred_reg = training.get_loss_value(point_voxel, image_data, object_datas)
                     lidar_image_with_bboxes = putBoundingBox(lidar_image[0, 0], object_datas)
                     print('[%d/%d][%d/%d]\tLoss: %.4f'
                           % (epoch, num_epochs, i, data_length, loss_value))

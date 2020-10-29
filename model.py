@@ -114,6 +114,7 @@ class LidarBackboneNetwork(nn.Module):
 
 class ObjectDetection_DCF(nn.Module):
     def __init__(self):
+        super(ObjectDetection_DCF, self).__init__()
         self.lidar_backbone = LidarBackboneNetwork()
         self.image_backbone = models.resnet18(pretrained=True)
 
@@ -133,6 +134,7 @@ class ObjectDetection_DCF(nn.Module):
 if __name__ == '__main__':
     image_backbone = models.resnet18(pretrained=True)
     model = LidarBackboneNetwork()
-    pred = model(torch.ones(1, 1, 480, 640))
+    pred = model(torch.ones(1, 32, 480, 640))
+    pred2 = image_backbone(torch.ones(1, 3, 480, 640))
     a = 1
 # See PyCharm help at https://www.jetbrains.com/help/pycharm/
