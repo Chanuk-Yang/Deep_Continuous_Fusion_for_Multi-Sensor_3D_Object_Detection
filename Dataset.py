@@ -12,7 +12,7 @@ from torch.utils.data import Dataset
 class KITTIDataset(Dataset):
 
     def __init__(
-        self, iSize=416, vSize=[700, 700, 32], 
+        self, iSize=416, vSize=[32, 700, 700], 
         kMode=True, tMode=True, baselinePath='./'):
 
         super(KITTIDataset, self).__init__()
@@ -33,7 +33,7 @@ class KITTIDataset(Dataset):
         self.iPathList = os.listdir(self.iPath)
         self.iPathList.sort()
         self.vPathList = os.listdir(self.vPath)
-        self.iPathList.sort()
+        self.vPathList.sort()
 
         self.category = ['Car', 'Van', 'Truck', 'Pedestrian', "Person",
                          'Cyclist', 'Tram', 'Misc']
@@ -52,7 +52,11 @@ class KITTIDataset(Dataset):
     
     def __getitem__(self, idx):
         iPath = self.iPathList[idx]
+        iPath = os.path.join(self.iPath, iPath)
+
         vPath = self.vPathList[idx]
+        vPath = os.path.join(self.vPath, vPath)
+
         lPath = self.lPathList[idx]
         lPath = os.path.join(self.lPath, lPath)
         
@@ -70,6 +74,17 @@ class KITTIDataset(Dataset):
             line = line[self.mask]
             parsedLine = np.array(line, dtype=np.float32)
             Label.append(parsedLine)
+        opener.close()
+        
+        opener = open(vPath, 'rb')
+        x = opener.read(1)
+        rawCPt = opener.readlines()
+        cPt = []
+
+        for line in rawCPt:
+            line = np.array(line, dtype=np.float32)
+            cPt.append(line)
+        opener.close()
 
 
 if __name__ == "__main__":
