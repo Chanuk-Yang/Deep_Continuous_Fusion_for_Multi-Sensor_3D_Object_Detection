@@ -3,45 +3,6 @@ import random
 import torch
 from PIL import Image, ImageDraw
 
-
-def arangeLabelData(object_datas):
-    reference_bboxes = []
-    for object_data in object_datas:
-        object_class = object_data[9]
-        # if (object_class > 5 and object_class < 7) or object_class == 9: # if object is vehicle
-        rel_x = object_data[0]
-        rel_y = object_data[1]
-        rel_z = object_data[2]
-        ori = object_data[5] # 3 and 4 should be carefully look whether is pitch or roll
-        width = object_data[6]
-        length = object_data[7]
-        height = object_data[8]
-        reference_bboxes.append([rel_x, rel_y, rel_z, length, width, height, ori])
-    return reference_bboxes
-
-def getOneStepData(data, id):
-    image_name = 'center_image_data'
-    lidar_name = 'lidar_data'
-    object_data_name = 'object_data' # relative position and rotation data
-    lidar_data = data[id][lidar_name].value
-    object_data = data[id][object_data_name].value
-    image_data = data[id][image_name].value
-    return object_data, lidar_data, image_data
-
-def getIdDict (hdf5_files, do_shuffle = True):
-    hdf_id_dict_train = {}
-    hdf_id_dict_test = {}
-    test_files = ['_2020-06-23-18-49-56.bag.hdf5', '_2020-06-24-14-52-05.bag.hdf5']
-    for hdf5_file in hdf5_files:
-        data_list = list(hdf5_files[hdf5_file].keys())
-        if (do_shuffle):
-            random.shuffle(data_list)
-        if hdf5_file in test_files:
-            hdf_id_dict_test[hdf5_file] = data_list
-        else:
-            hdf_id_dict_train[hdf5_file] = data_list
-    return hdf_id_dict_train, hdf_id_dict_test
-
 def getRect(x, y, width, height, angle):
     rect = np.array([(-width/2, -height/2), (width/2, -height/2),
                     (width/2, height/2), (-width/2, height/2),

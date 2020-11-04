@@ -5,7 +5,6 @@ import random
 
 
 from IOU import get_3d_box, box3d_iou
-from data_import import arangeLabelData
 
 def getAnchorboundingboxFeature():
     f_height = int(700/4) -1
