@@ -6,10 +6,10 @@ import os
 import h5py
 import numpy as np
 
-
+from data_import_carla import CarlaDataset
 from loss import LossTotal
 from model import LidarBackboneNetwork, ObjectDetection_DCF
-from data_import import getIdDict, getOneStepData, getLidarImage, Voxelization, putBoundingBox
+from data_import import getLidarImage, Voxelization, putBoundingBox
 
 
 class Train(nn.Module):
@@ -39,51 +39,34 @@ class Train(nn.Module):
 if __name__ == '__main__':
     os.environ['CUDA_VISIBLE_DEVICES'] = '2'
     num_epochs = 60
-    dataroot = "../dataset/carla_object"
-
-    print("reading hdf5 file...")
-    file_list = os.listdir(dataroot)
-    hdf5_files = {}
-    for file in file_list:
-        if file.split('.')[-1] == 'hdf5':
-            if file.split('.')[-2] == 'bagtest':
-                file_dir = os.path.join(dataroot, file)
-                try:
-                    hdf5_files[file] = h5py.File(file_dir, 'r')
-                    print(file)
-                except:
-                    print(file + ' doesnt work. we except this folder')
-    print("reading hdf5 end")
-
-
-
+    dataset = CarlaDataset()
     print("training is ready")
+
     training = Train()
+    data_length = len(dataset)
     for epoch in range(num_epochs):
-        id_dict_train, id_dict_test = getIdDict(hdf5_files)
-        data = hdf5_files[list(id_dict_train.keys())[0]]
-        for file in id_dict_train:
-            data_length = len(id_dict_train[file])
-            for i in range(data_length):
-                id = id_dict_train[file][i].strip()
-                object_datas, lidar_data, image_data = getOneStepData(data, id)
-                point_voxel = Voxelization(lidar_data).cuda()
+        for i in range(len(dataset)):
+            image_data = dataset[i]['image']
+            lidar_data = dataset[i]['pointcloud']
+            reference_bboxes = dataset[i]['bboxes']
+            point_voxel = Voxelization(lidar_data).cuda()
+            lidar_image = getLidarImage(lidar_data).cuda()  # parse lidar data to BEV lidar image
+            image_data = torch.tensor(image_data).cuda().permute(2,0,1).unsqueeze(0).type(torch.float)
+            training.one_step(point_voxel, image_data, reference_bboxes)
+            if i % 100 == 0:
+                print("training at ", i, "is processed")
+            if i % 500 == 0:
+                test_index = np.random.randint(len(dataset))
+                image_data = dataset[test_index]['image']
+                lidar_data = dataset[test_index]['pointcloud']
+                reference_bboxes = dataset[test_index]['bboxes']
                 lidar_image = getLidarImage(lidar_data).cuda()  # parse lidar data to BEV lidar image
-                image_data = torch.tensor(image_data).cuda().permute(2,0,1).unsqueeze(0).type(torch.float)
-                training.one_step(point_voxel, image_data, object_datas)
-                if i % 100 == 0:
-                    print("training at ", i, "is processed")
-                if i % 500 == 0:
-                    test_index = np.random.randint(data_length)
-                    id = id_dict_train[file][i].strip()
-                    object_datas, lidar_data, image_data = getOneStepData(data, id)
-                    lidar_image = getLidarImage(lidar_data).cuda()  # parse lidar data to BEV lidar image
-                    point_voxel = Voxelization(lidar_data).cuda()
-                    image_data = torch.tensor(image_data).type(torch.float).cuda().permute(2,0,1).unsqueeze(0)
-                    loss_value, pred_cls, pred_reg = training.get_loss_value(point_voxel, image_data, object_datas)
-                    lidar_image_with_bboxes = putBoundingBox(lidar_image[0, 0], object_datas)
-                    print('[%d/%d][%d/%d]\tLoss: %.4f'
-                          % (epoch, num_epochs, i, data_length, loss_value))
-                    save_image(pred_cls[0, 1, :, :], 'image/positive_image_{}_in_{}.png'.format(i, epoch))
-                    save_image(pred_cls[0, 0, :, :], 'image/negative_image_{}_in_{}.png'.format(i, epoch))
-                    save_image(lidar_image_with_bboxes, 'image/lidar_image_{}_in_{}.png'.format(i, epoch))
+                point_voxel = Voxelization(lidar_data).cuda()
+                image_data = torch.tensor(image_data).type(torch.float).cuda().permute(2,0,1).unsqueeze(0)
+                loss_value, pred_cls, pred_reg = training.get_loss_value(point_voxel, image_data, reference_bboxes)
+                lidar_image_with_bboxes = putBoundingBox(lidar_image[0, 0], reference_bboxes)
+                print('[%d/%d][%d/%d]\tLoss: %.4f'
+                      % (epoch, num_epochs, i, data_length, loss_value))
+                save_image(pred_cls[0, 1, :, :], 'image/positive_image_{}_in_{}.png'.format(i, epoch))
+                save_image(pred_cls[0, 0, :, :], 'image/negative_image_{}_in_{}.png'.format(i, epoch))
+                save_image(lidar_image_with_bboxes, 'image/lidar_image_{}_in_{}.png'.format(i, epoch))

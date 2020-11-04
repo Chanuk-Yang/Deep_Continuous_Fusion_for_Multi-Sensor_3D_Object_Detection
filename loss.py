@@ -122,8 +122,7 @@ class LossTotal(nn.Module):
         anchor_set_1, anchor_set_2 = getAnchorboundingboxFeature()
         self.anchor_set = torch.cat((anchor_set_1,anchor_set_2), dim = 0)
 
-    def forward(self, object_datas, predicted_class):
-        reference_bboxes = arangeLabelData(object_datas)
+    def forward(self, reference_bboxes, predicted_class):
         positive_position_list = getPositionOfPositive(self.anchor_set, torch.tensor(reference_bboxes))
         negative_position_list = getPositionOfNegative(self.anchor_set, positive_position_list)
         total_loss_class = getClassSum(positive_position_list, negative_position_list, predicted_class[0,:2,:,:], self.loss_class)

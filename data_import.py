@@ -28,13 +28,14 @@ def getOneStepData(data, id):
     image_data = data[id][image_name].value
     return object_data, lidar_data, image_data
 
-def getIdDict (hdf5_files):
+def getIdDict (hdf5_files, do_shuffle = True):
     hdf_id_dict_train = {}
     hdf_id_dict_test = {}
     test_files = ['_2020-06-23-18-49-56.bag.hdf5', '_2020-06-24-14-52-05.bag.hdf5']
     for hdf5_file in hdf5_files:
         data_list = list(hdf5_files[hdf5_file].keys())
-        random.shuffle(data_list)
+        if (do_shuffle):
+            random.shuffle(data_list)
         if hdf5_file in test_files:
             hdf_id_dict_test[hdf5_file] = data_list
         else:
@@ -52,10 +53,9 @@ def getRect(x, y, width, height, angle):
     transformed_rect = np.dot(rect, R) + offset
     return transformed_rect
 
-def putBoundingBox(lidar_image, object_data):
+def putBoundingBox(lidar_image, reference_bboxes):
     lidar_image = 0.5*lidar_image.cpu().clone().numpy()
     lidar_image_with_bbox = np.tile(lidar_image, (3, 1, 1))
-    reference_bboxes = arangeLabelData(object_data)
     img = Image.fromarray(lidar_image_with_bbox[0])
     draw = ImageDraw.Draw(img)
     for bbox in reference_bboxes:
