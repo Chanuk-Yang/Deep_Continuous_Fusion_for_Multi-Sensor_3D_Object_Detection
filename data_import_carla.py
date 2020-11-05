@@ -74,15 +74,15 @@ class CarlaDataset(Dataset):
         reference_bboxes = []
         for object_data in object_datas:
             object_class = object_data[9]
-            # if (object_class > 5 and object_class < 7) or object_class == 9: # if object is vehicle
-            rel_x = object_data[0]
-            rel_y = object_data[1]
-            rel_z = object_data[2]
-            ori = object_data[5]  # 3 and 4 should be carefully look whether is pitch or roll
-            width = object_data[6]
-            length = object_data[7]
-            height = object_data[8]
-            reference_bboxes.append([rel_x, rel_y, rel_z, length, width, height, ori])
+            if (object_class > 5 and object_class < 7) or object_class == 9: # if object is vehicle
+                rel_x = object_data[0]
+                rel_y = object_data[1]
+                rel_z = object_data[2]
+                ori = object_data[5]  # 3 and 4 should be carefully look whether is pitch or roll
+                width = object_data[6]
+                length = object_data[7]
+                height = object_data[8]
+                reference_bboxes.append([rel_x, rel_y, rel_z, length, width, height, ori])
         return torch.tensor(reference_bboxes)
 
     def getOneStepData(self, data, id):
