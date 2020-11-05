@@ -121,11 +121,11 @@ class LossTotal(nn.Module):
         anchor_set_1, anchor_set_2 = getAnchorboundingboxFeature()
         self.anchor_set = torch.cat((anchor_set_1,anchor_set_2), dim = 0)
 
-    def forward(self, reference_bboxes, predicted_class):
-        positive_position_list = getPositionOfPositive(self.anchor_set, torch.tensor(reference_bboxes))
+    def forward(self, reference_bboxes, predicted_class_feature, predicted_regress_feature):
+        positive_position_list = getPositionOfPositive(self.anchor_set,reference_bboxes)
         negative_position_list = getPositionOfNegative(self.anchor_set, positive_position_list)
-        total_loss_class = getClassSum(positive_position_list, negative_position_list, predicted_class[0,:2,:,:], self.loss_class)
-        total_loss_class += getClassSum(positive_position_list, negative_position_list, predicted_class[0,2:4,:,:], self.loss_class)
+        total_loss_class = getClassSum(positive_position_list, negative_position_list, predicted_class_feature[0,:2,:,:], self.loss_class)
+        total_loss_class += getClassSum(positive_position_list, negative_position_list, predicted_class_feature[0,2:4,:,:], self.loss_class)
         """
         TODO
         1. make regression loss

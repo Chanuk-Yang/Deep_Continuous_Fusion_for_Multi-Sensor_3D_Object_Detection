@@ -1,19 +1,21 @@
 import torch
 import os
 import h5py
-import numpy as np
-from torchvision import transforms
-from PIL import Image, ImageDraw
 from torch.utils.data import Dataset
 
 class CarlaDataset(Dataset):
-    def __init__(self):
+    def __init__(self, want_bev_image=False):
         super(CarlaDataset, self).__init__()
         self.hdf5_files = self.load_dataset()
         self.hdf5_id_dict = self.getIdDict(self.hdf5_files)
         self.length = 0
         self.scenario_length = []
         self.scenario_name = []
+        if (want_bev_image):
+            self.want_bev_image = True
+        else:
+            self.want_bev_image = False
+
         for hdf5_file in self.hdf5_files:
             single_data_scenario = self.hdf5_files[hdf5_file]
             self.length += len(single_data_scenario)
@@ -37,12 +39,23 @@ class CarlaDataset(Dataset):
                 data = self.hdf5_files[file_name]
                 id = self.hdf5_id_dict[file_name][idx_for_scenario].strip()
                 object_datas, lidar_data, image_data = self.getOneStepData(data, id)
+                image_data = torch.tensor(image_data).permute(2, 0, 1).unsqueeze(0).type(torch.float)
                 reference_bboxes = self.arangeLabelData(object_datas)
-                return {'image': image_data, 'bboxes': reference_bboxes, "pointcloud" : lidar_data}
+                voxelized_lidar = self.Voxelization(lidar_data)
+                if (self.want_bev_image):
+                    bev_image = self.getLidarImage(lidar_data)
+                    return {'image': image_data,
+                            'bboxes': reference_bboxes,
+                            "pointcloud": voxelized_lidar,
+                            "lidar_bev_2Dimage": bev_image}
+                else:
+                    return {'image': image_data,
+                            'bboxes': reference_bboxes,
+                            "pointcloud" : voxelized_lidar}
 
 
     def load_dataset(self):
-        label_path = "../dataset/carla_object"
+        label_path = "/media/mmc-server1/Server1/chanuk/ready_for_journal/dataset/carla_object"
         hdf5_files = {}
         print("reading hdf5 file...")
         file_list = os.listdir(label_path)
@@ -70,7 +83,7 @@ class CarlaDataset(Dataset):
             length = object_data[7]
             height = object_data[8]
             reference_bboxes.append([rel_x, rel_y, rel_z, length, width, height, ori])
-        return reference_bboxes
+        return torch.tensor(reference_bboxes)
 
     def getOneStepData(self, data, id):
         image_name = 'center_image_data'
@@ -88,6 +101,24 @@ class CarlaDataset(Dataset):
             hdf5_id_dict[hdf5_file] = data_list
         return hdf5_id_dict
 
+    def Voxelization(self, lidar_data):
+        lidar_voxel = torch.zeros(1, 32, 700, 700)
+        for lidar_point in lidar_data:
+            loc_x = int(lidar_point[-3] * 10)
+            loc_y = int(lidar_point[-2] * 10 + 350)
+            loc_z = int(lidar_point[-1] * 10 + 24)
+            if (loc_x > 0 and loc_x < 700 and loc_y > 0 and loc_y < 700 and loc_z > 0 and loc_z < 32):
+                lidar_voxel[0, loc_z, loc_x, loc_y] = 1
+        return lidar_voxel
+
+    def getLidarImage(self, lidar_data):
+        lidar_image = torch.zeros(1, 1, 700, 700)
+        for lidar_point in lidar_data:
+            loc_x = int(lidar_point[-3] * 10)
+            loc_y = int(lidar_point[-2] * 10 + 350)
+            if (loc_x > 0 and loc_x < 700 and loc_y > 0 and loc_y < 700):
+                lidar_image[0, 0, loc_x, loc_y] = 1
+        return lidar_image
 
 if __name__ == "__main__":
     dataset = CarlaDataset()
