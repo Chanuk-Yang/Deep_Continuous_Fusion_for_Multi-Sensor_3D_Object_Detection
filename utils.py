@@ -39,7 +39,7 @@ def showLidarBoundingBox(output):
     for label in labels:
         h, w, l, x, y, z, phi = label[1:]
         rect = getRect(x, y, w, h, phi)
-        draw.polygon([tuple(p) for p in rect], fill=100)
+        draw.polygon([tuple(p) for p in rect], fill=12)
     Img.show()
 
 

@@ -13,12 +13,11 @@ from utils import showLidarImg, showLidarBoundingBox
 class KITTIDataset(Dataset):
 
     def __init__(
-        self, iSize=416, vSize=[32, 700, 700], 
+        self, vSize=[32, 700, 700], want_bev_image=False, 
         kMode=True, tMode=True, baselinePath='./', maxRange=120):
         super(KITTIDataset, self).__init__()
 
         self.vSize = vSize
-        self.iSize = iSize
         self.maxRange = maxRange
         self.voxelThresh = [1/(i+1) for i in range(vSize[0])]
         self.voxelThresh = self.voxelThresh[::-1]
@@ -44,7 +43,7 @@ class KITTIDataset(Dataset):
         self.category = ['Car', 'Van', 'Truck', 'Pedestrian', "Person",
                          'Cyclist', 'Tram', 'Misc']
                          
-        mask = [0, 8, 9, 10, 11, 12, 13, -1]
+        mask = [0, 8, 9, 10, 11, 12, 13, 14]
         self.mask = [False for i in range(15)]
         for m in mask:
             self.mask[m] = True
@@ -71,6 +70,7 @@ class KITTIDataset(Dataset):
         Label = []
         
         # cat, h, w, length, x, y, z, rotation_y : 7dim
+        
         for line in rawLabel:
             line = np.array(line.split(' '))
             line[-1] = line[-1][:-2]
@@ -80,7 +80,9 @@ class KITTIDataset(Dataset):
             line = line[self.mask]
             parsedLine = np.array(line, dtype=np.float32)
             Label.append(parsedLine)
-        Label = np.array(Label)
+        Label = np.array(Label)  # 실제 label
+
+        # voxelization한 것에 해당하는 label로의 변환 
         Label[:, 1:4] *= 1/self.maxRange * self.vSize[-1]
         Label[:, 4:-2] *= 1/self.maxRange * self.vSize[-1]/2 + self.vSize[-1]/2
         opener.close()
@@ -112,7 +114,6 @@ class KITTIDataset(Dataset):
         showLidarBoundingBox(output)
 
         print(1)
-
 
 
 if __name__ == "__main__":
