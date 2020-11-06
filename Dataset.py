@@ -7,15 +7,21 @@ import torchvision.transforms.functional as TF
 from torchvision import transforms
 from PIL import Image, ImageDraw
 from torch.utils.data import Dataset
+from utils import showLidarImg, showLidarBoundingBox
 
 
 class KITTIDataset(Dataset):
 
     def __init__(
         self, iSize=416, vSize=[32, 700, 700], 
-        kMode=True, tMode=True, baselinePath='./'):
-
+        kMode=True, tMode=True, baselinePath='./', maxRange=120):
         super(KITTIDataset, self).__init__()
+
+        self.vSize = vSize
+        self.iSize = iSize
+        self.maxRange = maxRange
+        self.voxelThresh = [1/(i+1) for i in range(vSize[0])]
+        self.voxelThresh = self.voxelThresh[::-1]
         
         self.iPath = os.path.join(baselinePath, 'KITTI')
         self.vPath = os.path.join(baselinePath, 'KITTI')
@@ -74,17 +80,39 @@ class KITTIDataset(Dataset):
             line = line[self.mask]
             parsedLine = np.array(line, dtype=np.float32)
             Label.append(parsedLine)
+        Label = np.array(Label)
+        Label[:, 1:4] *= 1/self.maxRange * self.vSize[-1]
+        Label[:, 4:-2] *= 1/self.maxRange * self.vSize[-1]/2 + self.vSize[-1]/2
         opener.close()
         
-        opener = open(vPath, 'rb')
-        x = opener.read(1)
-        rawCPt = opener.readlines()
-        cPt = []
+        scan = np.fromfile(vPath, dtype=np.float32)
+        scan = np.reshape(scan, (-1, 4))
+        img = torch.zeros(1, self.vSize[-2], self.vSize[-1])
 
-        for line in rawCPt:
-            line = np.array(line, dtype=np.float32)
-            cPt.append(line)
-        opener.close()
+        # scan = scan[scan[:, -1] > 0.01]
+        for pt in scan:
+            locX = int(pt[0] / self.maxRange * self.vSize[-1]/2 + self.vSize[-1]/2)
+            locY = int(pt[1] / self.maxRange * self.vSize[-1]/2 + self.vSize[-1]/2)
+            img[0, locY, locX] = 1
+        
+        vImg = torch.zeros(tuple(self.vSize))
+
+        for i, thr in enumerate(self.voxelThresh):
+            temp = scan[scan[:, -1] < thr]
+            for pt in temp:
+                locX = int(pt[0] / self.maxRange * self.vSize[-1]/2 + self.vSize[-1]/2)
+                locY = int(pt[1] / self.maxRange * self.vSize[-1]/2 + self.vSize[-1]/2)
+                vImg[i, locY, locX] = 1
+            scan = scan[scan[:, -1] >= thr]
+        
+        output = {}
+        output['lidarImg'] = img
+        output['voxelImg'] = vImg
+        output['label'] = Label
+        showLidarBoundingBox(output)
+
+        print(1)
+
 
 
 if __name__ == "__main__":
