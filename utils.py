@@ -5,16 +5,8 @@ import torchvision.transforms.functional as TF
 from PIL import Image, ImageDraw
 
 
-def showLidarImg(ptList, threshold=0.3, imgSize=700, maxRange=120):
-    img = torch.zeros(1, imgSize, imgSize)
-
-    ptList = ptList[ptList[:, -1] > threshold]
-    for pt in ptList:
-        locX = int(pt[0] / maxRange * imgSize/2 + imgSize/2)
-        locY = int(pt[1] / maxRange * imgSize/2 + imgSize/2)
-        img[0, locY, locX] = 1
-    
-    img = TF.to_pil_image(img)
+def showLidarImg(output):
+    img = output['bevImg']
     img.show()
 
 
@@ -32,7 +24,7 @@ def getRect(x, y, width, height, angle):
 
 def showLidarBoundingBox(output):
     labels = output['label']
-    Img = output['lidarImg']
+    Img = output['bevImg']
 
     Img = TF.to_pil_image(Img)
     draw = ImageDraw.Draw(Img)
