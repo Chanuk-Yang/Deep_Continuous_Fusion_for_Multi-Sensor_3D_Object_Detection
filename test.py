@@ -12,6 +12,8 @@ from loss import LossTotal
 from model import LidarBackboneNetwork, ObjectDetection_DCF
 from data_import import putBoundingBox
 from IOU import get_3d_box, box3d_iou
+from separation_axis_theorem import get_vertice_rect, separating_axis_theorem
+
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
@@ -32,12 +34,19 @@ class Test:
     def get_eval_value_onestep(self, lidar_image, camera_image, object_data, plot_image=False):
         
         start = time.time()
-        pred_cls, pred_reg = self.net(lidar_image, camera_image)        
+        pred_cls, pred_reg = self.net(lidar_image, camera_image)
+        inter_1 = time.time()
+        print("inference algorithm time :", inter_1 - start, "s")     
         pred_bboxes = self.get_bboxes(pred_cls, pred_reg)
-        refined_bbox = self.NMS_IOU(pred_bboxes)
-        print("forward algorithm time :", time.time() - start, "s")
+        inter_2 = time.time()
+        # print("get_bboxes time :", inter_2 - inter_1, "s")    
+        # refined_bbox = self.NMS_IOU(pred_bboxes)
+        refined_bbox = self.NMS_SAT(pred_bboxes)
+        print("NMS time :", time.time() - inter_2, "s") 
+        print("total algorithm time :", time.time() - start, "s")
+        print("=" * 50)
         self.loss_value = self.loss_total(object_data, pred_cls, pred_reg)
-
+        
 
         if plot_image:
             lidar_image_with_bboxes = putBoundingBox(lidar_image, refined_bbox[0])
@@ -45,12 +54,14 @@ class Test:
         self.precision_recall_singleshot(refined_bbox[0], object_data) # single batch
         return self.loss_value.item(), pred_cls, pred_reg
     
-    def get_bboxes(self, pred_cls, pred_reg, threshold=100):
+    def get_bboxes(self, pred_cls, pred_reg, threshold=50):
         B, C, W, H = pred_cls.shape
         selected_bboxes_batch =[]
         for b in range(B):
             # need to change two anchor at pred_cls and pred_reg
+            start = time.time()
             sorted, indices = torch.sort(pred_cls[b,1].reshape(-1), descending=True)
+            print("sort time :", time.time() - start, "s")   
             row = indices // H
             col = indices % H
             selected_bboxes = pred_reg[b, :7, row[:threshold], col[:threshold]]
@@ -87,31 +98,35 @@ class Test:
             filtered_bboxes_batch.append(filtered_bboxes)
         return filtered_bboxes_batch
         
-    # def NMS_SAT(self, pred_bbox):
-    #     # IOU vs SAT(separate axis theorem)
-    #     filtered_bboxes = []
-    #     for bbox in pred_bboxes:
-    #         if len(filtered_bboxes) == 0:
-    #             filtered_bboxes.append(bbox)
-    #             continue
-    #         center = bbox[:3]
-    #         box_size = bbox[3:6]
-    #         heading_angle = bbox[6]
-    #         cand_bbox_corners = get_3d_box(center, box_size, heading_angle)
-    #         for selected_bbox in filtered_bboxes:
-    #             center_ = selected_bbox[:3]
-    #             box_size_ = selected_bbox[3:6]
-    #             heading_angle_ = selected_bbox[6]
-    #             selected_bbox_corners = get_3d_box(center_, box_size_, heading_angle_)
-    #             (IOU_3d, IOU_2d) = box3d_iou(cand_bbox_corners, selected_bbox_corners)
-    #             if IOU_3d < score_theshold:
-    #                 filtered_bboxes.append(bbox)
-    #     return filtered_bboxes
+    def NMS_SAT(self, pred_bboxes):
+        # IOU vs SAT(separate axis theorem)
+        filtered_bboxes_batch = []
+        B = len(pred_bboxes)
+        for b in range(B):
+            filtered_bboxes = []
+            filtered_bboxes_index = []
+            for i in range(pred_bboxes[b].shape[0]):
+                bbox = pred_bboxes[b][i]
+                if len(filtered_bboxes) == 0:
+                    filtered_bboxes.append(bbox)
+                    continue
+                center = bbox[:3].cpu().clone().detach().numpy()
+                box_size = bbox[3:6].cpu().clone().detach().numpy()
+                heading_angle = bbox[6].cpu().clone().detach().numpy()
+                cand_bbox_corners = get_vertice_rect(center, box_size, heading_angle)
+                for selected_bbox in filtered_bboxes:
+                    center_ = selected_bbox[:3].cpu().clone().detach().numpy()
+                    box_size_ = selected_bbox[3:6].cpu().clone().detach().numpy()
+                    heading_angle_ = selected_bbox[6].cpu().clone().detach().numpy()
+                    selected_bbox_corners = get_vertice_rect(center_, box_size_, heading_angle_)
+                    is_overlapped = separating_axis_theorem(cand_bbox_corners, selected_bbox_corners)
+                    if is_overlapped:
+                        filtered_bboxes_index.append(i)
+            for ind in filtered_bboxes_index:
+                filtered_bboxes.append(pred_bboxes[b][ind])
+            filtered_bboxes_batch.append(filtered_bboxes)
+        return filtered_bboxes_batch
         
-    def get_eval_value_total(self, dataset):
-        # 1. AP calc.
-        # 2. mAP calc.        
-        a=1
         
     def precision_recall_singleshot(self, pred_bboxes, ref_bboxes, score_theshold=0.5):
         for pred_bbox in pred_bboxes:
@@ -171,6 +186,7 @@ if __name__ == '__main__':
     test_model = ObjectDetection_DCF().cuda()
     test = Test(test_model)
     data_length = len(dataset)
+    loss_value = None
     for i in range(10):
         test_index = np.random.randint(data_length)
         image_data = dataset[test_index]['image'].cuda()
