@@ -2,6 +2,7 @@ import torch
 import os
 import h5py
 from torch.utils.data import Dataset
+from data_import import putBoundingBox
 
 class CarlaDataset(Dataset):
     def __init__(self, mode="train",want_bev_image=False):
@@ -44,10 +45,11 @@ class CarlaDataset(Dataset):
                 voxelized_lidar = self.Voxelization(lidar_data)
                 if (self.want_bev_image):
                     bev_image = self.getLidarImage(lidar_data)
+                    bev_image_with_bbox = putBoundingBox(bev_image, reference_bboxes)
                     return {'image': image_data,
                             'bboxes': reference_bboxes,
                             "pointcloud": voxelized_lidar,
-                            "lidar_bev_2Dimage": bev_image}
+                            "lidar_bev_2Dimage": bev_image_with_bbox}
                 else:
                     return {'image': image_data,
                             'bboxes': reference_bboxes,
