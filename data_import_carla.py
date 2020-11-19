@@ -2,11 +2,12 @@ import torch
 import os
 import h5py
 from torch.utils.data import Dataset
+from data_import import putBoundingBox
 
 class CarlaDataset(Dataset):
-    def __init__(self, want_bev_image=False):
+    def __init__(self, mode="train",want_bev_image=False):
         super(CarlaDataset, self).__init__()
-        self.hdf5_files = self.load_dataset()
+        self.hdf5_files = self.load_dataset(mode = mode)
         self.hdf5_id_dict = self.getIdDict(self.hdf5_files)
         self.length = 0
         self.scenario_length = []
@@ -44,18 +45,27 @@ class CarlaDataset(Dataset):
                 voxelized_lidar = self.Voxelization(lidar_data)
                 if (self.want_bev_image):
                     bev_image = self.getLidarImage(lidar_data)
+                    bev_image_with_bbox = putBoundingBox(bev_image, reference_bboxes)
                     return {'image': image_data,
                             'bboxes': reference_bboxes,
                             "pointcloud": voxelized_lidar,
-                            "lidar_bev_2Dimage": bev_image}
+                            "lidar_bev_2Dimage": bev_image_with_bbox}
                 else:
                     return {'image': image_data,
                             'bboxes': reference_bboxes,
                             "pointcloud" : voxelized_lidar}
 
 
-    def load_dataset(self):
-        label_path = "/media/mmc-server1/Server1/chanuk/ready_for_journal/dataset/carla_object"
+    def load_dataset(self, mode = "train"):
+        if mode == "train":
+            label_path = "/media/mmc-server1/Server1/chanuk/ready_for_journal/dataset/carla_object"
+        elif mode == "test":
+            label_path = "/media/mmc-server1/Server1/chanuk/ready_for_journal/dataset/carla_object/test"
+        else:
+            print ("ERROR IN MODE TYPE, PRESS [train] OR [test] !!")
+            return -1
+            
+                
         hdf5_files = {}
         print("reading hdf5 file...")
         file_list = os.listdir(label_path)

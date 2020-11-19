@@ -14,9 +14,10 @@ def getRect(x, y, width, height, angle):
     return transformed_rect
 
 def putBoundingBox(lidar_image, reference_bboxes):
-    lidar_image = 0.5*lidar_image.cpu().clone().numpy()
-    lidar_image_with_bbox = np.tile(lidar_image, (3, 1, 1))
-    img = Image.fromarray(lidar_image_with_bbox[0])
+    lidar_image = 0.5*lidar_image.permute(0,2,3,1).cpu().clone().numpy()
+    lidar_image_with_bbox = np.tile(lidar_image, (1, 1, 1, 3))
+    lidar_image_with_bbox = lidar_image_with_bbox[0]
+    img = Image.fromarray((255*lidar_image_with_bbox).astype(np.uint8))
     draw = ImageDraw.Draw(img)
     for bbox in reference_bboxes:
         x = int(bbox[1]*10+350)
@@ -26,5 +27,5 @@ def putBoundingBox(lidar_image, reference_bboxes):
         angle = bbox[-1] - 1.57
         rect = getRect(x=x, y=y, width=width, height=height, angle=angle)
         draw.polygon([tuple(p) for p in rect], fill=1)
-    lidar_image_with_bbox[0] = np.asarray(img)
+    lidar_image_with_bbox = np.asarray(img)
     return torch.tensor(lidar_image_with_bbox)
