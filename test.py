@@ -48,27 +48,28 @@ class Test:
         start = time.time()
         pred_cls, pred_reg = self.net(lidar_image, camera_image)
         inter_1 = time.time()
-        print("inference algorithm time :", inter_1 - start, "s")   
+        # print("inference algorithm time :", inter_1 - start, "s")   
         pred_cls = pred_cls.cpu().clone().detach()
         pred_reg = pred_reg.cpu().clone().detach()
 
         inter_2 = time.time()
-        print("device to host time :", inter_2 - inter_1, "s")   ## its toooooooo slow
+        # print("device to host time :", inter_2 - inter_1, "s")   ## its toooooooo slow
   
         pred_bboxes = self.get_bboxes(pred_cls, pred_reg, score_threshold=0.7)
         inter_3 = time.time()
-        print("get_bboxes time :", inter_3 - inter_2, "s")    
-        # refined_bbox = self.NMS_IOU(pred_bboxes, nms_iou_score_theshold=0.01)
-        refined_bbox = self.NMS_SAT(pred_bboxes)
-        print("NMS time :", time.time() - inter_3, "s") 
-        print("total algorithm time :", time.time() - start, "s")
-        print("=" * 50)
+        # print("get_bboxes time :", inter_3 - inter_2, "s")    
+        refined_bbox = self.NMS_IOU(pred_bboxes, nms_iou_score_theshold=0.01)
+        # refined_bbox = self.NMS_SAT(pred_bboxes)
+        # print("NMS time :", time.time() - inter_3, "s") 
+        # print("total algorithm time :", time.time() - start, "s")
+        # print("=" * 50)
         self.loss_value = self.loss_total(object_data, pred_cls, pred_reg)
-        print(refined_bbox)
+        # print(refined_bbox)
 
         if plot_bev_image:
             lidar_image_with_bboxes = putBoundingBox(lidar_image, refined_bbox[0])
             save_image(lidar_image_with_bboxes, 'image/lidar_image.png')
+        
         self.precision_recall_singleshot(refined_bbox[0], object_data, ap_iou_score_threshold=0.5) # single batch
         return self.loss_value.item(), pred_cls, pred_reg
     
@@ -80,7 +81,7 @@ class Test:
             # need to change two anchor at pred_cls and pred_reg
             start = time.time()
             sorted, indices = torch.sort(pred_cls[b,1].reshape(-1), descending=True)
-            print("sort time :", time.time() - start, "s")   
+            # print("sort time :", time.time() - start, "s")   
             row = indices // H
             col = indices % H
             selected_bboxes = pred_reg[b, :7, row[:selet_bbox_threshold], col[:selet_bbox_threshold]]
@@ -102,7 +103,7 @@ class Test:
 
 
             indices = torch.nonzero(pred_cls_).view(-1)
-            print("bbox time: ", time.time() - start)
+            # print("bbox time: ", time.time() - start)
 
             pred_reg_ = pred_reg[b, :7, :, :].view((7,-1))
             selected_bboxes = pred_reg_[:,indices].permute(1,0)
@@ -210,21 +211,33 @@ class Test:
             total_precision[iou_threshold] = self.num_TP_set[iou_threshold] / (self.num_P + 0.00001)
             total_recall[iou_threshold] = self.num_TP_set[iou_threshold] / (self.num_T + 0.00001)
 
+        print("Total Precision: ", total_precision)
+        print("Total Recall: ", total_recall)
+
         precisions = {}
         recalls = {}
         for num_tp_set in self.num_TP_set_per_predbox:
             for iou_threshold in self.IOU_threshold:
                 precisions[iou_threshold] = [x / self.num_P for x in num_tp_set.values()]
                 recalls[iou_threshold] = [x / self.num_T for x in num_tp_set.values() ]
-
+        print("precisions: ", precisions)
+        print("recalls: ", recalls)
         if plot_AP_graph:
             fig = plt.figure()
             ax = fig.add_subplot(111)
-            ax.plot([1,2,3])
+            lines = []
+            for iou_threshold in self.IOU_threshold:
+                line = 0
+                if iou_threshold in recalls:
+                    line = ax.plot(recalls[iou_threshold], precisions[iou_threshold])
+                else:
+                    line = ax.plot([0,0])
+                lines.append(line)
+
+            fig.legend(lines, labels=self.IOU_threshold, title="IOU threshold value")
             fig.savefig('ap_result/test.png')
 
-        print("Total Precision: ", total_precision)
-        print("Total Recall: ", total_recall)
+        
 
 
 
@@ -236,19 +249,25 @@ class Test:
 
 if __name__ == '__main__':
     os.environ['CUDA_VISIBLE_DEVICES'] = '2'
-    dataset = CarlaDataset()
+
+    # Focus on test dataset
+    dataset = CarlaDataset(mode="test")
     print("dataset is ready")
+
+    # Load pre-trained model. you can use the model during training instead of test_model 
     test_model = ObjectDetection_DCF().cuda()
     test = Test(test_model)
     data_length = len(dataset)
     loss_value = None
+
     for i in range(10):
         test_index = np.random.randint(data_length)
         image_data = dataset[test_index]['image'].cuda()
         point_voxel = dataset[test_index]['pointcloud'].cuda()
         reference_bboxes = dataset[test_index]['bboxes'].cuda()
+        
+        # evaluate AP in one image and voxel lidar
         loss_value, pred_cls, pred_reg = test.get_eval_value_onestep(point_voxel, image_data, reference_bboxes)
-    test.display_average_precision()
+    test.display_average_precision(plot_AP_graph=True)
     test.initialize_ap()
-    print('Loss: %.4f'% (loss_value))
     
