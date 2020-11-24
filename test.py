@@ -225,10 +225,12 @@ class Test:
 
         precisions = {}
         recalls = {}
+        num_P = 0
         for num_tp_set in self.num_TP_set_per_predbox:
+            num_P+=1
             for iou_threshold in self.IOU_threshold:
-                precisions[iou_threshold] = [x / self.num_P for x in num_tp_set.values()]
-                recalls[iou_threshold] = [x / self.num_T for x in num_tp_set.values() ]
+                precisions[iou_threshold] = [num_tp_set[iou_threshold] / num_P]
+                recalls[iou_threshold] = [num_tp_set[iou_threshold] / self.num_T]
         print("precisions: ", precisions)
         print("recalls: ", recalls)
         if plot_AP_graph:
