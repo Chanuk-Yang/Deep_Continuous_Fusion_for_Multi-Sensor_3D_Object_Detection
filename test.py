@@ -46,6 +46,9 @@ class Test:
     def get_num_T(self):
         return self.num_T
 
+    def get_num_P(self):
+        return self.num_P
+
     def get_eval_value_onestep(self, lidar_image, camera_image, object_data, plot_bev_image=False):
 
         start = time.time()
@@ -287,6 +290,7 @@ if __name__ == '__main__':
         # evaluate AP in one image and voxel lidar
         test.get_eval_value_onestep(point_voxel, image_data, reference_bboxes)
         print("accumulated number of true data is ", test.get_num_T())
+        print("accumulated number of positive data is ", test.get_num_P())
         print("="*50)
         if batch_ndx > 10:
             break
