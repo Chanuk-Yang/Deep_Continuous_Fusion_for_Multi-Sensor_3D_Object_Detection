@@ -33,14 +33,14 @@ class CarlaDataset(Dataset):
             return -1
         for scenario_file_index in range(len(self.scenario_length)):
             length = self.scenario_length[scenario_file_index]
-            if (idx_for_scenario - length > 0):
+            if (idx_for_scenario - length >= 0):
                 idx_for_scenario = idx_for_scenario - length
             else:
                 file_name = self.scenario_name[scenario_file_index]
                 data = self.hdf5_files[file_name]
                 id = self.hdf5_id_dict[file_name][idx_for_scenario].strip()
                 object_datas, lidar_data, image_data = self.getOneStepData(data, id)
-                image_data = torch.tensor(image_data).permute(2, 0, 1).unsqueeze(0).type(torch.float)
+                image_data = torch.tensor(image_data).permute(2, 0, 1).type(torch.float)
                 reference_bboxes = self.arangeLabelData(object_datas)
                 voxelized_lidar = self.Voxelization(lidar_data)
                 if (self.want_bev_image):
@@ -81,19 +81,37 @@ class CarlaDataset(Dataset):
         return hdf5_files
 
     def arangeLabelData(self, object_datas):
+        """
+        uint8 CLASSIFICATION_UNKNOWN=0
+        uint8 CLASSIFICATION_UNKNOWN_SMALL=1
+        uint8 CLASSIFICATION_UNKNOWN_MEDIUM=2
+        uint8 CLASSIFICATION_UNKNOWN_BIG=3
+        uint8 CLASSIFICATION_PEDESTRIAN=4
+        uint8 CLASSIFICATION_BIKE=5
+        uint8 CLASSIFICATION_CAR=6
+        uint8 CLASSIFICATION_TRUCK=7
+        uint8 CLASSIFICATION_MOTORCYCLE=8
+        uint8 CLASSIFICATION_OTHER_VEHICLE=9
+        uint8 CLASSIFICATION_BARRIER=10
+        uint8 CLASSIFICATION_SIGN=11
+        """
+        ref_bboxes = torch.zeros(50,9)
         reference_bboxes = []
+        i = 0
         for object_data in object_datas:
+            if i>50:
+                break
             object_class = object_data[9]
-            if (object_class > 5 and object_class < 7) or object_class == 9: # if object is vehicle
-                rel_x = object_data[0]
-                rel_y = object_data[1]
-                rel_z = object_data[2]
-                ori = object_data[5]  # 3 and 4 should be carefully look whether is pitch or roll
-                width = object_data[6]
-                length = object_data[7]
-                height = object_data[8]
-                reference_bboxes.append([rel_x, rel_y, rel_z, length, width, height, ori])
-        return torch.tensor(reference_bboxes)
+            rel_x = object_data[0]
+            rel_y = object_data[1]
+            rel_z = object_data[2]
+            ori = object_data[5]  # 3 and 4 should be carefully look whether is pitch or roll
+            width = object_data[6]
+            length = object_data[7]
+            height = object_data[8]
+            ref_bboxes[i,:] = torch.tensor([rel_x, rel_y, rel_z, length, width, height, ori, object_class, 1])
+            i+=1
+        return ref_bboxes
 
     def getOneStepData(self, data, id):
         image_name = 'center_image_data'
@@ -112,13 +130,13 @@ class CarlaDataset(Dataset):
         return hdf5_id_dict
 
     def Voxelization(self, lidar_data):
-        lidar_voxel = torch.zeros(1, 32, 700, 700)
+        lidar_voxel = torch.zeros(32, 700, 700)
         for lidar_point in lidar_data:
             loc_x = int(lidar_point[-3] * 10)
             loc_y = int(lidar_point[-2] * 10 + 350)
             loc_z = int(lidar_point[-1] * 10 + 24)
             if (loc_x > 0 and loc_x < 700 and loc_y > 0 and loc_y < 700 and loc_z > 0 and loc_z < 32):
-                lidar_voxel[0, loc_z, loc_x, loc_y] = 1
+                lidar_voxel[loc_z, loc_x, loc_y] = 1
         return lidar_voxel
 
     def getLidarImage(self, lidar_data):
@@ -131,7 +149,14 @@ class CarlaDataset(Dataset):
         return lidar_image
 
 if __name__ == "__main__":
-    dataset = CarlaDataset()
-    print(len(dataset))
-    print(dataset[0])
-    print(dataset[len(dataset)-1])
+    dataset = CarlaDataset(mode="test")
+    data_loader = torch.utils.data.DataLoader(dataset,
+                                          batch_size=4,
+                                          shuffle=True)
+    for batch_ndx, sample in enumerate(data_loader):
+        print("batch_ndx is ", batch_ndx)
+        print("sample keys are ", sample.keys())
+        print("bbox shape is ", sample["bboxes"].shape)
+        print("image shape is ", sample["image"].shape)
+        print("pointcloud shape is ", sample["pointcloud"].shape)
+    # print(dataset[len(dataset)-1])

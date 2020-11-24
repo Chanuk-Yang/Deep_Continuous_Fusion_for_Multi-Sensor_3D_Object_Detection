@@ -43,6 +43,9 @@ class Test:
         for iou_threshold in self.IOU_threshold:
             self.num_TP_set[iou_threshold] = 0
 
+    def get_num_T(self):
+        return self.num_T
+
     def get_eval_value_onestep(self, lidar_image, camera_image, object_data, plot_bev_image=False):
 
         start = time.time()
@@ -63,15 +66,15 @@ class Test:
         # print("NMS time :", time.time() - inter_3, "s") 
         # print("total algorithm time :", time.time() - start, "s")
         # print("=" * 50)
-        self.loss_value = self.loss_total(object_data, pred_cls, pred_reg)
+        # self.loss_value = self.loss_total(object_data, pred_cls, pred_reg)
         # print(refined_bbox)
 
         if plot_bev_image:
             lidar_image_with_bboxes = putBoundingBox(lidar_image, refined_bbox[0])
             save_image(lidar_image_with_bboxes, 'image/lidar_image.png')
         
-        self.precision_recall_singleshot(refined_bbox[0], object_data, ap_iou_score_threshold=0.5) # single batch
-        return self.loss_value.item(), pred_cls, pred_reg
+        self.precision_recall_singleshot(refined_bbox, object_data, ap_iou_score_threshold=0.5) # single batch
+        # return self.loss_value.item(), pred_cls, pred_reg
     
     def get_bboxes_sort(self, pred_cls, pred_reg, selet_bbox_threshold=50):        
         
@@ -174,31 +177,37 @@ class Test:
         
         
     def precision_recall_singleshot(self, pred_bboxes, ref_bboxes, ap_iou_score_threshold=0.5):
-        if pred_bboxes != None:
-            print (pred_bboxes)
-            for pred_bbox in pred_bboxes:
-                self.num_P += 1
-                center = pred_bbox[:3].numpy()
-                box_size = pred_bbox[3:6].numpy()
-                heading_angle = pred_bbox[6].numpy()
-                pred_bbox_corners = get_3d_box(center, box_size, heading_angle)
-                true_positive_cand_score = {}
-                for ref_bbox in ref_bboxes:
-                    center_ = ref_bbox[:3].numpy()
-                    box_size_ = ref_bbox[3:6].numpy()
-                    heading_angle_ = ref_bbox[6].numpy()
-                    ref_bbox_corners = get_3d_box(center_, box_size_, heading_angle_)
-                    (IOU_3d, IOU_2d) = box3d_iou(pred_bbox_corners, ref_bbox_corners)
+        B,_,_ = ref_bboxes.shape
+        for b in range(B):
+            pred_bboxes_sb = pred_bboxes[b]
+            ref_bboxes_sb = ref_bboxes[b]
+            print("test shape is ", ref_bboxes_sb.shape)
+            if pred_bboxes_sb != None:
+                for pred_bbox in pred_bboxes_sb:
+                    self.num_P += 1
+                    center = pred_bbox[:3].numpy()
+                    box_size = pred_bbox[3:6].numpy()
+                    heading_angle = pred_bbox[6].numpy()
+                    pred_bbox_corners = get_3d_box(center, box_size, heading_angle)
+                    true_positive_cand_score = {}
+                    for ref_bbox in ref_bboxes_sb:
+                        if ref_bbox[-1] == 1:
+                            center_ = ref_bbox[:3].numpy()
+                            box_size_ = ref_bbox[3:6].numpy()
+                            heading_angle_ = ref_bbox[6].numpy()
+                            ref_bbox_corners = get_3d_box(center_, box_size_, heading_angle_)
+                            (IOU_3d, IOU_2d) = box3d_iou(pred_bbox_corners, ref_bbox_corners)
+                            for iou_threshold in self.IOU_threshold:
+                                if IOU_3d > iou_threshold:
+                                    true_positive_cand_score[iou_threshold] = IOU_3d
+                    
                     for iou_threshold in self.IOU_threshold:
-                        if IOU_3d > iou_threshold:
-                            true_positive_cand_score[iou_threshold] = IOU_3d
-                
-                for iou_threshold in self.IOU_threshold:
-                    if iou_threshold in true_positive_cand_score:
-                        self.num_TP_set[iou_threshold] += 1
-                self.num_TP_set_per_predbox.append(self.num_TP_set)
-        for ref_bbox_ in ref_bboxes:
-            self.num_T += 1
+                        if iou_threshold in true_positive_cand_score:
+                            self.num_TP_set[iou_threshold] += 1
+                    self.num_TP_set_per_predbox.append(self.num_TP_set)
+            for ref_bbox_ in ref_bboxes_sb:
+                if ref_bbox_[-1] == 1:
+                    self.num_T += 1
 
         
     def display_average_precision(self, plot_AP_graph=False):
@@ -248,26 +257,40 @@ class Test:
         self.num_TP_set_per_predbox = []
 
 if __name__ == '__main__':
-    os.environ['CUDA_VISIBLE_DEVICES'] = '2'
+    os.environ['CUDA_VISIBLE_DEVICES'] = '1'
 
     # Focus on test dataset
     dataset = CarlaDataset(mode="test")
     print("dataset is ready")
-
+    data_loader = torch.utils.data.DataLoader(dataset,
+                                          batch_size=4,
+                                          shuffle=True)
     # Load pre-trained model. you can use the model during training instead of test_model 
     test_model = ObjectDetection_DCF().cuda()
     test = Test(test_model)
     data_length = len(dataset)
     loss_value = None
 
-    for i in range(10):
+    for batch_ndx, sample in enumerate(data_loader):
+        print("batch_ndx is ", batch_ndx)
+        print("sample keys are ", sample.keys())
+        print("bbox shape is ", sample["bboxes"].shape)
+        print("image shape is ", sample["image"].shape)
+        print("pointcloud shape is ", sample["pointcloud"].shape)
         test_index = np.random.randint(data_length)
-        image_data = dataset[test_index]['image'].cuda()
-        point_voxel = dataset[test_index]['pointcloud'].cuda()
-        reference_bboxes = dataset[test_index]['bboxes'].cuda()
+        image_data = sample['image'].cuda()
+        point_voxel = sample['pointcloud'].cuda()
+        reference_bboxes = sample['bboxes'].cuda()
         
         # evaluate AP in one image and voxel lidar
-        loss_value, pred_cls, pred_reg = test.get_eval_value_onestep(point_voxel, image_data, reference_bboxes)
+        test.get_eval_value_onestep(point_voxel, image_data, reference_bboxes)
+        print("accumulated number of true data is ", test.get_num_T())
+        print("="*50)
+        if batch_ndx > 10:
+            break
+
+    # display average-precision plot and mAP
     test.display_average_precision(plot_AP_graph=True)
+    # MUST DO WHEN U DISPLAY ALL OF RESULTS
     test.initialize_ap()
     
