@@ -3,6 +3,8 @@ import os
 import h5py
 from torch.utils.data import Dataset
 from data_import import putBoundingBox
+import time
+import numpy as np
 
 class CarlaDataset(Dataset):
     def __init__(self, mode="train",want_bev_image=False):
@@ -117,9 +119,11 @@ class CarlaDataset(Dataset):
         image_name = 'center_image_data'
         lidar_name = 'lidar_data'
         object_data_name = 'object_data'  # relative position and rotation data
-        lidar_data = data[id][lidar_name].value
-        object_data = data[id][object_data_name].value
-        image_data = data[id][image_name].value
+        
+        lidar_data = np.array(data[id][lidar_name])
+        object_data = np.array(data[id][object_data_name])
+        image_data = np.array(data[id][image_name])
+        
         return object_data, lidar_data, image_data
 
     def getIdDict(self, hdf5_files):
