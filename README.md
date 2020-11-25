@@ -21,11 +21,11 @@ Data parse is in data_import_carla.py. You can change other dataset by changing 
 ### Training
 
 ```
-$ python3.7 train.py
+$ python3.5 train.py
 ```
 
 ### Testing
 
 ```
-$ python3.7 test.py
+$ python3.5 test.py
 ```
