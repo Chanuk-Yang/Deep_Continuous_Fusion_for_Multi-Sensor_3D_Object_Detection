@@ -43,18 +43,24 @@ class CarlaDataset(Dataset):
                 id = self.hdf5_id_dict[file_name][idx_for_scenario].strip()
                 object_datas, lidar_data, image_data = self.getOneStepData(data, id)
                 image_data = torch.tensor(image_data).permute(2, 0, 1).type(torch.float)
-                reference_bboxes = self.arangeLabelData(object_datas)
-                voxelized_lidar = self.Voxelization(lidar_data)
+                reference_bboxes, num_reference_bboxes = self.arangeLabelData(object_datas)
+                voxelized_lidar, point_cloud_raw, num_points_raw = self.Voxelization(lidar_data)
                 if (self.want_bev_image):
                     bev_image = self.getLidarImage(lidar_data)
                     bev_image_with_bbox = putBoundingBox(bev_image, reference_bboxes)
                     return {'image': image_data,
                             'bboxes': reference_bboxes,
+                            "num_bboxes": num_reference_bboxes,
                             "pointcloud": voxelized_lidar,
+                            "pointcloud_raw": point_cloud_raw,
+                            "num_points_raw": num_points_raw,
                             "lidar_bev_2Dimage": bev_image_with_bbox}
                 else:
                     return {'image': image_data,
                             'bboxes': reference_bboxes,
+                            "num_bboxes": num_reference_bboxes,
+                            "pointcloud_raw":point_cloud_raw,
+                            "num_points_raw": num_points_raw,
                             "pointcloud" : voxelized_lidar}
 
 
@@ -113,7 +119,7 @@ class CarlaDataset(Dataset):
             height = object_data[8]
             ref_bboxes[i,:] = torch.tensor([rel_x, rel_y, rel_z, length, width, height, ori, object_class, 1])
             i+=1
-        return ref_bboxes
+        return ref_bboxes, i
 
     def getOneStepData(self, data, id):
         image_name = 'center_image_data'
@@ -135,21 +141,26 @@ class CarlaDataset(Dataset):
 
     def Voxelization(self, lidar_data):
         lidar_voxel = torch.zeros(32, 700, 700)
+        point_cloud_raw = []
         for lidar_point in lidar_data:
             loc_x = int(lidar_point[-3] * 10)
             loc_y = int(lidar_point[-2] * 10 + 350)
             loc_z = int(lidar_point[-1] * 10 + 24)
             if (loc_x > 0 and loc_x < 700 and loc_y > 0 and loc_y < 700 and loc_z > 0 and loc_z < 32):
                 lidar_voxel[loc_z, loc_x, loc_y] = 1
-        return lidar_voxel
+                point_cloud_raw.append([lidar_point[-3], lidar_point[-2], lidar_point[-1]])
+        num_point_cloud_raw = len(point_cloud_raw)
+        point_cloud_raw_tensor = torch.zeros(25000, 3)
+        point_cloud_raw_tensor[:num_point_cloud_raw,:] = torch.tensor(point_cloud_raw)
+        return lidar_voxel, point_cloud_raw_tensor, num_point_cloud_raw
 
     def getLidarImage(self, lidar_data):
-        lidar_image = torch.zeros(1, 1, 700, 700)
+        lidar_image = torch.zeros(1, 700, 700)
         for lidar_point in lidar_data:
             loc_x = int(lidar_point[-3] * 10)
             loc_y = int(lidar_point[-2] * 10 + 350)
             if (loc_x > 0 and loc_x < 700 and loc_y > 0 and loc_y < 700):
-                lidar_image[0, 0, loc_x, loc_y] = 1
+                lidar_image[0, loc_x, loc_y] = 1
         return lidar_image
 
 if __name__ == "__main__":
@@ -161,6 +172,12 @@ if __name__ == "__main__":
         print("batch_ndx is ", batch_ndx)
         print("sample keys are ", sample.keys())
         print("bbox shape is ", sample["bboxes"].shape)
+        print("num bbox is ", sample["num_bboxes"])
         print("image shape is ", sample["image"].shape)
         print("pointcloud shape is ", sample["pointcloud"].shape)
+        print("pointcloud_raw shape is ", sample["pointcloud_raw"].shape)
+        print("num points is ", sample["num_points_raw"])
+        print("="*50)
+        if batch_ndx >10:
+            break
     # print(dataset[len(dataset)-1])
