@@ -28,13 +28,12 @@ class Test:
         plot_bev_image (False)
         selet_bbox_threshold (50)
         nms_iou_score_theshold (0.01)
-        ap_iou_score_threshold (0.5)
         plot_AP_graph (False)
         """
         
         self.net = pre_trained_net
         self.net.eval()
-        self.loss_total = LossTotal()
+        # self.loss_total = LossTotal()
         self.num_TP_set = {}
         self.num_TP_set_per_predbox = []
         self.num_T = 0
@@ -76,7 +75,7 @@ class Test:
             lidar_image_with_bboxes = putBoundingBox(lidar_image, refined_bbox[0])
             save_image(lidar_image_with_bboxes, 'image/lidar_image.png')
         
-        self.precision_recall_singleshot(refined_bbox, object_data, ap_iou_score_threshold=0.5) # single batch
+        self.precision_recall_singleshot(refined_bbox, object_data) # single batch
         # return self.loss_value.item(), pred_cls, pred_reg
     
     def get_bboxes_sort(self, pred_cls, pred_reg, selet_bbox_threshold=50):        
@@ -179,7 +178,7 @@ class Test:
         return filtered_bboxes_batch
         
         
-    def precision_recall_singleshot(self, pred_bboxes, ref_bboxes, ap_iou_score_threshold=0.5):
+    def precision_recall_singleshot(self, pred_bboxes, ref_bboxes):
         B,_,_ = ref_bboxes.shape
         for b in range(B):
             pred_bboxes_sb = pred_bboxes[b]
@@ -229,11 +228,14 @@ class Test:
         precisions = {}
         recalls = {}
         num_P = 0
+        for iou_threshold in self.IOU_threshold:
+            precisions[iou_threshold] = [1]
+            recalls[iou_threshold] = [0]
         for num_tp_set in self.num_TP_set_per_predbox:
             num_P+=1
             for iou_threshold in self.IOU_threshold:
-                precisions[iou_threshold] = [num_tp_set[iou_threshold] / num_P]
-                recalls[iou_threshold] = [num_tp_set[iou_threshold] / self.num_T]
+                precisions[iou_threshold].append(num_tp_set[iou_threshold] / num_P)
+                recalls[iou_threshold].append(num_tp_set[iou_threshold] / self.num_T)
         print("precisions: ", precisions)
         print("recalls: ", recalls)
         if plot_AP_graph:
@@ -242,7 +244,7 @@ class Test:
             lines = []
             for iou_threshold in self.IOU_threshold:
                 line = 0
-                if iou_threshold in recalls:
+                if len(recalls[iou_threshold]) > 1: 
                     line = ax.plot(recalls[iou_threshold], precisions[iou_threshold])
                 else:
                     line = ax.plot([0,0])
@@ -260,9 +262,11 @@ class Test:
         self.num_T = 0
         self.num_P = 0
         self.num_TP_set_per_predbox = []
+        for iou_threshold in self.IOU_threshold:
+            self.num_TP_set[iou_threshold] = 0
 
 if __name__ == '__main__':
-    os.environ['CUDA_VISIBLE_DEVICES'] = '1'
+    os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 
     # Focus on test dataset
     dataset = CarlaDataset(mode="test")
