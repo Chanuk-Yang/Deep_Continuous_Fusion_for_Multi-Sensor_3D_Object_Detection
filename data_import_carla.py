@@ -96,6 +96,21 @@ class CarlaDataset(Dataset):
         print("reading hdf5 end")
         return hdf5_files
 
+    def valid_bbox(self, object_data):
+        loc_x = object_data[0]
+        loc_y = object_data[1]
+        if loc_x >= 0 and loc_x < 70.0 and loc_y >= -35.0 and loc_y < 35.0:
+            return True
+        return False
+
+    def valid_point(self, point):
+        loc_x = int(point[-3] * 10)
+        loc_y = int(point[-2] * 10 + 350)
+        loc_z = int(point[-1] * 10 + 24)
+        if (loc_x > 0 and loc_x < 700 and loc_y > 0 and loc_y < 700 and loc_z > 0 and loc_z < 32):
+            return True
+        return False
+
     def arangeLabelData(self, object_datas):
         """
         uint8 CLASSIFICATION_UNKNOWN=0
@@ -111,12 +126,14 @@ class CarlaDataset(Dataset):
         uint8 CLASSIFICATION_BARRIER=10
         uint8 CLASSIFICATION_SIGN=11
         """
-        ref_bboxes = torch.zeros(50,9)
+        ref_bboxes = torch.zeros(20,9)
         reference_bboxes = []
         i = 0
         for object_data in object_datas:
             if i>50:
                 break
+            if not self.valid_bbox(object_data):
+                continue
             object_class = object_data[9]
             rel_x = object_data[0]
             rel_y = object_data[1]
@@ -170,11 +187,11 @@ class CarlaDataset(Dataset):
         xyz_one = torch.cat((point_cloud_raw, ones), dim=-1) # input        
         uv_z = torch.matmul(xyz_one, self.CRT_tensor).permute(1,0)
         uv = uv_z/uv_z[-1]
-        uv = uv.type(torch.int)[:2]
-        uv = torch.where(uv[0] > 0, uv, torch.tensor(0).type(torch.int).cuda())
-        uv = torch.where(uv[0] < 640, uv, torch.tensor(0).type(torch.int).cuda())
-        uv = torch.where(uv[1] > 0, uv, torch.tensor(0).type(torch.int).cuda())
-        uv = torch.where(uv[1] < 480, uv, torch.tensor(0).type(torch.int).cuda())
+        uv = uv[:2]
+        uv = torch.where(uv[0] > 0, uv, torch.tensor(0).type(torch.float).cuda())
+        uv = torch.where(uv[0] < 640, uv, torch.tensor(0).type(torch.float).cuda())
+        uv = torch.where(uv[1] > 0, uv, torch.tensor(0).type(torch.float).cuda())
+        uv = torch.where(uv[1] < 480, uv, torch.tensor(0).type(torch.float).cuda())
         indices = torch.nonzero(uv)
         indices = indices[:int(indices.shape[0]/2),1]
         filtered_points_raw = point_cloud_raw[indices]
@@ -186,10 +203,10 @@ class CarlaDataset(Dataset):
         lidar_voxel = torch.zeros(32, 700, 700)
         point_cloud_raw = []
         for lidar_point in lidar_data:
-            loc_x = int(lidar_point[-3] * 10)
-            loc_y = int(lidar_point[-2] * 10 + 350)
-            loc_z = int(lidar_point[-1] * 10 + 24)
-            if (loc_x > 0 and loc_x < 700 and loc_y > 0 and loc_y < 700 and loc_z > 0 and loc_z < 32):
+            if self.valid_point(lidar_point):
+                loc_x = int(lidar_point[-3] * 10)
+                loc_y = int(lidar_point[-2] * 10 + 350)
+                loc_z = int(lidar_point[-1] * 10 + 24)
                 lidar_voxel[loc_z, loc_x, loc_y] = 1
                 point_cloud_raw.append([lidar_point[-3], lidar_point[-2], lidar_point[-1]])
 
@@ -205,9 +222,9 @@ class CarlaDataset(Dataset):
     def getLidarImage(self, lidar_data):
         lidar_image = torch.zeros(1, 700, 700)
         for lidar_point in lidar_data:
-            loc_x = int(lidar_point[-3] * 10)
-            loc_y = int(lidar_point[-2] * 10 + 350)
-            if (loc_x > 0 and loc_x < 700 and loc_y > 0 and loc_y < 700):
+            if valid_point(lidar_point):
+                loc_x = int(lidar_point[-3] * 10)
+                loc_y = int(lidar_point[-2] * 10 + 350)
                 lidar_image[0, loc_x, loc_y] = 1
         return lidar_image
 
@@ -220,12 +237,15 @@ if __name__ == "__main__":
         print("batch_ndx is ", batch_ndx)
         print("sample keys are ", sample.keys())
         print("bbox shape is ", sample["bboxes"].shape)
-        print("num bbox is ", sample["num_bboxes"])
+        print("num bboxes is ", sample["num_bboxes"])
         print("image shape is ", sample["image"].shape)
         print("pointcloud shape is ", sample["pointcloud"].shape)
+
+
         print("pointcloud_raw shape is ", sample["pointcloud_raw"].shape)
         print("num points is ", sample["num_points_raw"])
         print("projected_loc_uv shape is ", sample["projected_loc_uv"].shape)
+
         print("="*50)
         if batch_ndx >10:
             break
