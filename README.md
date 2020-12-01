@@ -16,7 +16,7 @@ reference: Deep Continuous Fusion for Multi-Sensor 3D Object Detection (Ming Lia
 
 ### Data directory 
 
-Data parse is in data_import_carla.py. You can change other dataset by changing Dataset class.
+Data parse is in data_import_carla.py. You can change other dataset by changing Dataset class!
 
 ### Training
 
