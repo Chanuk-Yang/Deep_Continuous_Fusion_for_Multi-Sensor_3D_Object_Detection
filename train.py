@@ -88,5 +88,7 @@ if __name__ == '__main__':
                 print("accumulated number of true data is ", test.get_num_T())
                 print("accumulated number of positive data is ", test.get_num_P())
                 print("="*50)
+            if batch_ndx > 20:
+                break
         test.display_average_precision(plot_AP_graph=True)
         test.initialize_ap()
