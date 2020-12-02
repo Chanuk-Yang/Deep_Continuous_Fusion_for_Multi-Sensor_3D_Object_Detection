@@ -213,9 +213,9 @@ class CarlaDataset(Dataset):
         # Projection
         uv, filtered_points_raw = self.Projection(point_cloud_raw)
         num_point_cloud_raw = filtered_points_raw.shape[0]
-        point_cloud_raw_tensor = torch.zeros(15000, 3).cuda()
+        point_cloud_raw_tensor = torch.zeros(20000, 3).cuda()
         point_cloud_raw_tensor[:num_point_cloud_raw,:] = filtered_points_raw
-        uv_tensor = torch.zeros(15000, 2).cuda()
+        uv_tensor = torch.zeros(20000, 2).cuda()
         uv_tensor[:num_point_cloud_raw,:] = uv
         return lidar_voxel, point_cloud_raw_tensor, uv_tensor, num_point_cloud_raw
 
