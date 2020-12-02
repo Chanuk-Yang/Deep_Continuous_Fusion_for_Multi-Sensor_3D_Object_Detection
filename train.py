@@ -4,12 +4,14 @@ import torch.optim as optim
 from torchvision.utils import save_image
 import os
 import numpy as np
+import argparse
 
 from data_import_carla import CarlaDataset
+# from kitti import KittiDataset
 from loss import LossTotal
 from model import LidarBackboneNetwork, ObjectDetection_DCF
 from data_import import putBoundingBox
-
+from test import Test
 
 class Train(nn.Module):
     def __init__(self):
@@ -35,28 +37,56 @@ class Train(nn.Module):
 
 
 if __name__ == '__main__':
-    os.environ['CUDA_VISIBLE_DEVICES'] = '2'
-    num_epochs = 60
-    dataset = CarlaDataset()
-    print("training is ready")
+    parser = argparse.ArgumentParser(description='deep continuous fusion training is doing')
+    parser.add_argument('--data', type=str, default="carla", help='Data type, choose [carla] or [kitti]')
+    parser.add_argument('--cuda', type=int, default=0, help="cuda visible device number. you can choose 0~7")
+    args = parser.parse_args()
+    dataset_category = args.data
+    cuda_vis_dev_num = args.cuda
 
+    os.environ['CUDA_VISIBLE_DEVICES'] = str(cuda_vis_dev_num)
+    if dataset_category == "carla":
+        dataset = CarlaDataset()
+        dataset_test = CarlaDataset(mode="test")
+        print("carla dataset is used for training")
+    elif dataset_category =="kitti":
+        dataset = KittiDataset()
+        dataset_test = KittiDataset(mode="test")
+        print("kitti dataset is used for training")
+    data_loader = torch.utils.data.DataLoader(dataset,
+                                          batch_size=4,
+                                          shuffle=True)
+    data_loader_test = torch.utils.data.DataLoader(dataset_test,
+                                          batch_size=4,
+                                          shuffle=True)
+    num_epochs = 60
     training = Train()
+    test = Test(training.model)
     data_length = len(dataset)
     for epoch in range(num_epochs):
-        for i in range(len(dataset)):
-            image_data = dataset[i]['image'].cuda()
-            point_voxel = dataset[i]['pointcloud'].cuda()
-            reference_bboxes = dataset[i]['bboxes'].cuda()
-            training.one_step(point_voxel, image_data, reference_bboxes)
-            if i % 100 == 0:
-                print("training at ", i, "is processed")
-            if i % 500 == 0:
+        for batch_ndx, sample in enumerate(data_loader):
+            image_data = sample['image'].cuda()
+            point_voxel = sample['pointcloud'].cuda()
+            reference_bboxes = sample["bboxes"].cuda()
+            # training.one_step(point_voxel, image_data, reference_bboxes)
+            if batch_ndx % 100 == 0:
+                print("training at ", batch_ndx, "is processed")
+            if batch_ndx % 500 == 0:
                 test_index = np.random.randint(len(dataset))
-                image_data = dataset[test_index]['image'].cuda()
-                point_voxel = dataset[test_index]['pointcloud'].cuda()
-                reference_bboxes = dataset[test_index]['bboxes'].cuda()
+                image_data = sample['image'].cuda()
+                point_voxel = sample['pointcloud'].cuda()
+                reference_bboxes = sample['bboxes'].cuda()
                 loss_value, pred_cls, pred_reg = training.get_loss_value(point_voxel, image_data, reference_bboxes)
-                print('[%d/%d][%d/%d]\tLoss: %.4f'
+                print('[%d/%d][%d/%d]\tLoss: %.4f in traning dataset'
                       % (epoch, num_epochs, i, data_length, loss_value))
-                save_image(pred_cls[0, 1, :, :], 'image/positive_image_{}_in_{}.png'.format(i, epoch))
-                save_image(pred_cls[0, 0, :, :], 'image/negative_image_{}_in_{}.png'.format(i, epoch))
+        for batch_ndx, sample in enumerate(data_loader):
+            image_data = sample['image'].cuda()
+            point_voxel = sample['pointcloud'].cuda()
+            reference_bboxes = sample['bboxes'].cuda()
+            test.get_eval_value_onestep(point_voxel, image_data, reference_bboxes)
+            if batch_ndx % 500 == 0:
+                print("accumulated number of true data is ", test.get_num_T())
+                print("accumulated number of positive data is ", test.get_num_P())
+                print("="*50)
+        test.display_average_precision(plot_AP_graph=True)
+        test.initialize_ap()
