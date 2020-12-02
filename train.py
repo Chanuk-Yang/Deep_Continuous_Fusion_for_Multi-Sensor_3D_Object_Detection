@@ -84,9 +84,11 @@ if __name__ == '__main__':
             point_voxel = sample['pointcloud'].cuda()
             reference_bboxes = sample['bboxes'].cuda()
             test.get_eval_value_onestep(point_voxel, image_data, reference_bboxes)
-            if batch_ndx % 500 == 0:
+            if batch_ndx % 200 == 0:
                 print("accumulated number of true data is ", test.get_num_T())
                 print("accumulated number of positive data is ", test.get_num_P())
                 print("="*50)
+            if batch_ndx > 20:
+                break
         test.display_average_precision(plot_AP_graph=True)
         test.initialize_ap()
