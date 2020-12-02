@@ -183,7 +183,6 @@ class Test:
         for b in range(B):
             pred_bboxes_sb = pred_bboxes[b]
             ref_bboxes_sb = ref_bboxes[b]
-            print("test shape is ", ref_bboxes_sb.shape)
             if pred_bboxes_sb != None:
                 for pred_bbox in pred_bboxes_sb:
                     self.num_P += 1
