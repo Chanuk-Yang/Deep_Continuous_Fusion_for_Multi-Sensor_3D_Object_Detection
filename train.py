@@ -79,7 +79,7 @@ if __name__ == '__main__':
                 reference_bboxes = sample['bboxes'].cuda()
                 loss_value, pred_cls, pred_reg = training.get_loss_value(point_voxel, image_data, reference_bboxes,num_ref_bboxes)
                 print('[%d/%d][%d/%d]\tLoss: %.4f in traning dataset'
-                      % (epoch, num_epochs, i, data_length, loss_value))
+                      % (epoch, num_epochs, batch_ndx, data_length, loss_value))
         for batch_ndx, sample in enumerate(data_loader):
             image_data = sample['image'].cuda()
             point_voxel = sample['pointcloud'].cuda()
