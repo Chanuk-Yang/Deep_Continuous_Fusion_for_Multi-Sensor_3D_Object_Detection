@@ -22,7 +22,7 @@ def getAnchorboundingboxFeature():
     anc_x = torch.matmul(
         torch.ones(f_height, 1), torch.linspace(0.0, 70.0, f_width).view(1, f_width)).view(1, f_height, f_width)
     anc_y = torch.matmul(
-        torch.linspace(-35.0, 35.0).view(f_height, 1), torch.ones(1, f_width)).view(1, f_height, f_width)
+        torch.linspace(-35.0, 35.0, f_height).view(f_height, 1), torch.ones(1, f_width)).view(1, f_height, f_width)
 
 
 
@@ -32,8 +32,8 @@ def getAnchorboundingboxFeature():
     anc_h = torch.ones(1, f_height, f_width) * height
     anc_ori = torch.ones(1, f_height, f_width) * 0
     anc_ori_90 = torch.ones(1, f_height, f_width) * 3.1415926/2
-    anc_set_1 = torch.cat((anc_x, anc_y, anc_z, anc_l, anc_w, anc_h, anc_ori), 0)
-    anc_set_2 = torch.cat((anc_x, anc_y, anc_z, anc_l, anc_w, anc_h, anc_ori_90), 0)
+    anc_set_1 = torch.cat((anc_x, anc_y, anc_z, anc_l, anc_w, anc_h, anc_ori), 0).unsqueeze(0)
+    anc_set_2 = torch.cat((anc_x, anc_y, anc_z, anc_l, anc_w, anc_h, anc_ori_90), 0).unsqueeze(0)
     return anc_set_1, anc_set_2
 
 def getPositionOfPositive(anchor_bbox_feature, ref_bboxes, regress_type, sample_threshold = 128):
@@ -49,11 +49,12 @@ def getPositionOfPositive(anchor_bbox_feature, ref_bboxes, regress_type, sample_
         point_x = int(ref_bbox[0]*10/4)   # (0~ 700/4)
         point_y = int((ref_bbox[1]*10 + 350)/4)  #(0 ~ 700/4)
 
+        print('ref_box : ', [point_x, point_y])
 
         if point_x < 0 or point_x > H - 1 or point_y < 0 or point_y > W - 1:
             continue
 
-        positive_position_cnt[i] = []
+        positive_position_idx[i] = []
 
         for x_int in range(5):
             pos_x = point_x - 2 + x_int
@@ -75,10 +76,11 @@ def getPositionOfPositive(anchor_bbox_feature, ref_bboxes, regress_type, sample_
 
 #     sample_idx = np.random.choice(len(positive_position_list), np.max(sample_threshold, len(positive_position_list)), replace=False)
 
-    suffled_position_list = random.shuffle(positive_position_list)
+    np.random.shuffle(positive_position_list)
     if len(positive_position_list) > sample_threshold:
-        suffled_position_list = suffled_position_list[:sample_threshold]
-    return positive_position_idx, np.array(positive_position_regress), suffled_position_list
+        positive_position_list = positive_position_list[:sample_threshold]
+        
+    return positive_position_idx, np.array(positive_position_regress), positive_position_list
 
 
 
@@ -170,7 +172,8 @@ def getRegSum(index, positive_position_list, reference_bboxes, predicted_regress
     # positive_position_list = x : 700/4  y: 700/4 , size : [700/4, 700/4]
     # predicted_regress_feature = x : ?, y: ?, size : [700/4, 700/4]
     # anchor = x : 0~70.0, y : -35.0~35.0,  size : [700/4, 700/4]
-
+    
+    
     positive_size = len(positive_position_list)
 
     reg_loss = 0
@@ -184,7 +187,7 @@ def getRegSum(index, positive_position_list, reference_bboxes, predicted_regress
 
 
         predicted_box = torch.cat(box_list, dim=0) #[N,14]
-        anchor_box = torch.cat(abox_list, dim=0) #[N,2,7]
+        anchor_box = torch.cat(abox_list, dim=0) #[N,2,8]
         loss = LossReg(reference_box, predicted_box, anchor_box)
 
 
@@ -213,18 +216,44 @@ class LossTotal(nn.Module):
         anchor_set_1, anchor_set_2 = getAnchorboundingboxFeature()
         self.anchor_set = torch.cat((anchor_set_1,anchor_set_2), dim = 0)
 
-    def forward(self, reference_bboxes, predicted_class_feature, predicted_regress_feature, regress_type=0):
-        IDX, positive_position_list_all, positive_position_list = getPositionOfPositive(self.anchor_set,reference_bboxes, regress_type)
+    def forward(self, reference_bboxes_batch, num_ref_bbox_batch, predicted_class_feature_batch, predicted_regress_feature_batch, regress_type=0):
+        # reference_bboxes : B, max_n(20), 8
+        B, max_num, _ = reference_bboxes_batch.shape
+        
+        print('reference_bboxes_batch size : ',reference_bboxes_batch.shape)
+        
+        print('num_ref_bbox_batch size : ',num_ref_bbox_batch.shape)
+        
+        print('predicted_class_feature_batch size : ',predicted_class_feature_batch.shape)
+        
+        print('predicted_regress_feature_batch size : ',predicted_regress_feature_batch.shape)
+        
+        total_loss = 0
+        
+        print('anchor_set size : ',self.anchor_set.shape)
+        self.anchor_set = self.anchor_set.unsqueeze(0).repeat(B,1,1,1,1)
+        
+        
+        
+        for b in range(B):
+            reference_bboxes = reference_bboxes_batch[b,:num_ref_bbox_batch[b]]
+            predicted_class_feature = predicted_class_feature_batch[b]
+            predicted_regress_feature = predicted_regress_feature_batch[b]
+            anchor = self.anchor_set[b]
+            
+            
+            IDX, positive_position_list_all, positive_position_list = getPositionOfPositive(anchor,reference_bboxes, regress_type)
 
-        negative_position_list = getPositionOfNegative(self.anchor_set, positive_position_list)
-        total_loss_class = getClassSum(positive_position_list, negative_position_list, predicted_class_feature[0,:2,:,:], self.loss_class)
-        total_loss_class += getClassSum(positive_position_list, negative_position_list, predicted_class_feature[0,2:4,:,:], self.loss_class)
+            negative_position_list = getPositionOfNegative(anchor, positive_position_list)
+            
+            total_loss_class = getClassSum(positive_position_list, negative_position_list, predicted_class_feature[:2,:,:], self.loss_class)
+            total_loss_class += getClassSum(positive_position_list, negative_position_list, predicted_class_feature[2:4,:,:], self.loss_class)
 
 
         ## anchor의 좌표를 절대 좌표로 바꿔야 한다.
         ## position_list_all은 positive_position이 다 들어간것, true 하나당 한 픽셀이려면 수정 필요
 
-        Reg_loss = getRegSum(IDX, positive_position_list_all, reference_bboxes, predicted_regress_feature[0], self.anchor_set)
+            Reg_loss = getRegSum(IDX, positive_position_list_all, reference_bboxes, predicted_class_feature, anchor)
 
         """
         TODO
@@ -245,7 +274,7 @@ class LossTotal(nn.Module):
         """
 
 
-        total_loss = total_loss_class
+        total_loss += (total_loss_class+Reg_loss)
         return total_loss
 
 
