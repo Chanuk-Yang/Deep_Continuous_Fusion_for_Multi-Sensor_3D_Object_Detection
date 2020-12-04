@@ -91,6 +91,51 @@ class Resnet18Customed(nn.Module):
 #             else:
 # ===================================================================
 
+class OffsettoBbox(nn.Module):
+    def __init__(self):
+        super(OffsettoBbox, self).__init__()
+        f_height = int(700/4) -1
+        f_width = int(700/4) - 1
+        width = 2.0
+        length = 4.0
+        height = 1.5
+
+        anc_x = torch.matmul(
+            torch.ones(f_height, 1), torch.linspace(0.0, 70.0, f_width).view(1, f_width)).view(1, f_height, f_width)
+        anc_y = torch.matmul(
+            torch.linspace(-35.0, 35.0, f_height).view(f_height, 1), torch.ones(1, f_width)).view(1, f_height, f_width)
+        anc_x = torch.matmul(
+            torch.ones(f_height, 1), torch.linspace(0.0, 70.0, f_width).view(1, f_width)).view(1, f_height, f_width)
+        anc_y = torch.matmul(
+            torch.linspace(-35.0, 35.0, f_height).view(f_height, 1), torch.ones(1, f_width)).view(1, f_height, f_width)
+        anc_z = torch.ones(1, f_height, f_width) * 1
+        anc_w = torch.ones(1, f_height, f_width) * width
+        anc_l = torch.ones(1, f_height, f_width) * length
+        anc_h = torch.ones(1, f_height, f_width) * height
+        anc_ori = torch.ones(1, f_height, f_width) * 0
+        anc_ori_90 = torch.ones(1, f_height, f_width) * 3.1415926/2
+        anc_set_1 = torch.cat((anc_x, anc_y, anc_z, anc_l, anc_w, anc_h, anc_ori), 0).cuda()
+        anc_set_2 = torch.cat((anc_x, anc_y, anc_z, anc_l, anc_w, anc_h, anc_ori_90), 0).cuda()
+        self.anc_set = torch.cat((anc_set_1,anc_set_2),0).unsqueeze(0)
+
+    def forward(self, x):
+        """
+        x: x_reg [b,num_anc*7,wid,hei]
+        """
+
+        pred_xyz_1 = x[:,:3,:,:] * self.anc_set[:,:3,:,:] + self.anc_set[:,:3,:,:]
+        pred_whl_1 = torch.exp(x[:,3:6,:,:]) * self.anc_set[:,3:6,:,:]
+        pred_ori_1 = x[:,6:7,:,:] + self.anc_set[:,6:7,:,:]
+
+        pred_xyz_2 = x[:,7:10,:,:] * self.anc_set[:,7:10,:,:] + self.anc_set[:,7:10,:,:]
+        pred_whl_2 = torch.exp(x[:,10:13,:,:]) * self.anc_set[:,10:13,:,:]
+        pred_ori_2 = x[:,13:14,:,:] + self.anc_set[:,13:14,:,:]
+
+        pred_bbox_feature = torch.cat((pred_xyz_1, pred_whl_1, pred_ori_1,
+                                      pred_xyz_2, pred_whl_2, pred_ori_2), dim=1)
+
+        return pred_bbox_feature
+
 
 class LidarBackboneNetwork(nn.Module):
     def __init__(self, out_feature=(64, 128, 192, 256),Num_anchor = 2):
@@ -115,26 +160,28 @@ class LidarBackboneNetwork(nn.Module):
 class ObjectDetection_DCF(nn.Module):
     def __init__(self):
         super(ObjectDetection_DCF, self).__init__()
+        self.offset_to_bbox = OffsettoBbox()
         self.lidar_backbone = LidarBackboneNetwork()
         self.image_backbone = models.resnet18(pretrained=True)
 
     def forward(self, x_lidar, x_image):
         lidar_pred_cls, lidar_pred_reg = self.lidar_backbone(x_lidar)
         image_ = self.image_backbone(x_image)
-
+        lidar_pred_bbox = self.offset_to_bbox(lidar_pred_reg)
         """
         TODO
         1. make continuous fusion layer from image
         2. add with lidar feature
         """
-        return lidar_pred_cls, lidar_pred_reg
+        return lidar_pred_cls, lidar_pred_reg, lidar_pred_bbox
 
 
 # Press the green button in the gutter to run the script.
 if __name__ == '__main__':
     image_backbone = models.resnet18(pretrained=True)
     model = LidarBackboneNetwork()
-    pred = model(torch.ones(1, 32, 480, 640))
-    pred2 = image_backbone(torch.ones(1, 3, 480, 640))
+    pred = model(torch.ones(4, 32, 480, 640))
+    pred2 = image_backbone(torch.ones(4, 3, 480, 640))
     a = 1
+    print("model inference is good")
 # See PyCharm help at https://www.jetbrains.com/help/pycharm/

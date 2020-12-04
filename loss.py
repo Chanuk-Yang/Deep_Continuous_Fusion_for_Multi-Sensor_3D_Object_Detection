@@ -24,9 +24,6 @@ def getAnchorboundingboxFeature():
         torch.ones(f_height, 1), torch.linspace(0.0, 70.0, f_width).view(1, f_width)).view(1, f_height, f_width)
     anc_y = torch.matmul(
         torch.linspace(-35.0, 35.0, f_height).view(f_height, 1), torch.ones(1, f_width)).view(1, f_height, f_width)
-
-
-
     anc_z = torch.ones(1, f_height, f_width) * 1
     anc_w = torch.ones(1, f_height, f_width) * width
     anc_l = torch.ones(1, f_height, f_width) * length
@@ -152,18 +149,19 @@ def LossReg(ref_box, pred_box, a_box):
 
     ref_box = ref_box.unsqueeze(0).unsqueeze(0).repeat(N,num_anchor,1)
     pred_box = pred_box.reshape(N,num_anchor,char)
+    
+
+    xyz_ref_offset = (ref_box[:,:,:3]-a_box[:,:,:3])/(a_box[:,:,:3]+0.00001)
+    whd_ref_offset = torch.log(ref_box[:,:,3:6]/(a_box[:,:,3:6]+0.00001))
+    ori_ref_offset = ref_box[:,:,-1] - a_box[:,:,-1]
 
 
-    
-    
-    xyz_error = (pred_box[:,:,:3]-ref_box[:,:,:3])/a_box[:,:,:3]
-    whd_error = torch.log(pred_box[:,:,3:6]/ref_box[:,:,3:6])
-    ori_error = pred_box[:,:,-1] - ref_box[:,:,-1]
+    xyz_error = pred_box[:,:,:3] - xyz_ref_offset
+    whd_error = pred_box[:,:,3:6] - whd_ref_offset
+    ori_error = pred_box[:,:,-1] - ori_ref_offset
 
     total_error = torch.cat([xyz_error, whd_error,ori_error.unsqueeze(-1)], dim=-1) #[N,2,7]
-
     l1_loss = F.smooth_l1_loss(total_error, torch.zeros_like(total_error).cuda()) #[N,2,7]
-
     loss = 1.0/(N*num_anchor*char) * torch.sum(l1_loss)
 
     return loss
@@ -190,8 +188,8 @@ def getRegSum(index, positive_position_list, reference_bboxes, predicted_regress
             abox_list.append(anchor[:,:, positive_position[0], positive_position[1]]) #[2,7]
 
 
-        predicted_box = torch.stack(box_list, dim=0) #[N,14]
-        anchor_box = torch.stack(abox_list, dim=0) #[N,2,7]
+        predicted_box = torch.stack(box_list, dim=0) #[N,14], offset bbox set
+        anchor_box = torch.stack(abox_list, dim=0) #[N,2,7], original bbox set
         
         
         loss = LossReg(reference_box, predicted_box, anchor_box)
@@ -226,26 +224,26 @@ class LossTotal(nn.Module):
         # reference_bboxes : B, max_n(20), 8
         B, max_num, _ = reference_bboxes_batch.shape
         
-        print('reference_bboxes_batch size : ',reference_bboxes_batch.shape)
+        # print('reference_bboxes_batch size : ',reference_bboxes_batch.shape)
         
-        print('num_ref_bbox_batch size : ',num_ref_bbox_batch.shape)
+        # print('num_ref_bbox_batch size : ',num_ref_bbox_batch.shape)
         
-        print('predicted_class_feature_batch size : ',predicted_class_feature_batch.shape)
+        # print('predicted_class_feature_batch size : ',predicted_class_feature_batch.shape)
         
-        print('predicted_regress_feature_batch size : ',predicted_regress_feature_batch.shape)
+        # print('predicted_regress_feature_batch size : ',predicted_regress_feature_batch.shape)
         
-        total_loss = 0
+        # total_loss = torch.zeros(0).cuda()
         
+        # print('anchor_set size before : ',self.anchor_set.shape)
+        self.anchor_set_ = self.anchor_set.unsqueeze(0).repeat(B,1,1,1,1)
         
-        self.anchor_set = self.anchor_set.unsqueeze(0).repeat(B,1,1,1,1)
-        
-        print('anchor_set size : ',self.anchor_set.shape)
+        # print('anchor_set size : ',self.anchor_set_.shape)
         
         for b in range(B):
             reference_bboxes = reference_bboxes_batch[b,:num_ref_bbox_batch[b]]
             predicted_class_feature = predicted_class_feature_batch[b]
             predicted_regress_feature = predicted_regress_feature_batch[b]
-            anchor = self.anchor_set[b]
+            anchor = self.anchor_set_[b]
             
             
             IDX, positive_position_list_all, positive_position_list = getPositionOfPositive(anchor,reference_bboxes, regress_type)
@@ -255,26 +253,25 @@ class LossTotal(nn.Module):
             total_loss_class = getClassSum(positive_position_list, negative_position_list, predicted_class_feature[:2,:,:], self.loss_class)
             total_loss_class += getClassSum(positive_position_list, negative_position_list, predicted_class_feature[2:4,:,:], self.loss_class)
 
-
-        ## anchor의 좌표를 절대 좌표로 바꿔야 한다.
-        ## position_list_all은 positive_position이 다 들어간것, true 하나당 한 픽셀이려면 수정 필요
+            ## anchor의 좌표를 절대 좌표로 바꿔야 한다.
+            ## position_list_all은 positive_position이 다 들어간것, true 하나당 한 픽셀이려면 수정 필요
 
             Reg_loss = getRegSum(IDX, positive_position_list_all, reference_bboxes, predicted_regress_feature, anchor)
 
-        """
-        TODO
-        ## prerequsite
-        ##   anchorbox 위치, 높이, 거리 등 -> 하나의 point당 2개씩인가??
-        ##   true box 위치 높이 거리 등
-        ##   pred box 위치 높이 거리 등
-        ## 1. true anchor box의 offset을 구하기
-        ## 2. pred anchor box의 offset을 구하기
-        1. make regression loss
-        2. omit the reference object when the points are few in bounding box (or...)
-        """
+            """
+            TODO
+            ## prerequsite
+            ##   anchorbox 위치, 높이, 거리 등 -> 하나의 point당 2개씩인가??
+            ##   true box 위치 높이 거리 등
+            ##   pred box 위치 높이 거리 등
+            ## 1. true anchor box의 offset을 구하기
+            ## 2. pred anchor box의 offset을 구하기
+            1. make regression loss
+            2. omit the reference object when the points are few in bounding box (or...)
+            """
 
+        total_loss = total_loss_class + Reg_loss
 
-        total_loss += (total_loss_class+Reg_loss)
         return total_loss
 
 

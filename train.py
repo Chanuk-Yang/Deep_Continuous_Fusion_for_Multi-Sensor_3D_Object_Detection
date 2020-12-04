@@ -24,14 +24,14 @@ class Train(nn.Module):
         self.optimizer = optim.Adam(self.model.parameters(), lr=lr, betas=(beta1, 0.999))
 
     def one_step(self, lidar_voxel, camera_image, object_data, num_ref_box):
-        pred_cls, pred_reg = self.model(lidar_voxel, camera_image)
+        pred_cls, pred_reg, pred_bbox_f = self.model(lidar_voxel, camera_image)
         self.loss_value = self.loss_total(object_data, num_ref_box, pred_cls, pred_reg)
         self.optimizer.zero_grad()
         self.loss_value.backward()
         self.optimizer.step()
 
     def get_loss_value(self, lidar_image, camera_image, object_data, num_ref_box):
-        pred_cls, pred_reg = self.model(lidar_image, camera_image)
+        pred_cls, pred_reg, pred_bbox_f = self.model(lidar_image, camera_image)
         self.loss_value = self.loss_total(object_data, num_ref_box, pred_cls, pred_reg)
         return self.loss_value.item(), pred_cls, pred_reg
 
@@ -54,10 +54,10 @@ if __name__ == '__main__':
         dataset_test = KittiDataset(mode="test")
         print("kitti dataset is used for training")
     data_loader = torch.utils.data.DataLoader(dataset,
-                                          batch_size=4,
+                                          batch_size=2,
                                           shuffle=True)
     data_loader_test = torch.utils.data.DataLoader(dataset_test,
-                                          batch_size=4,
+                                          batch_size=2,
                                           shuffle=True)
     num_epochs = 60
     training = Train()
@@ -68,19 +68,16 @@ if __name__ == '__main__':
             image_data = sample['image'].cuda()
             point_voxel = sample['pointcloud'].cuda()
             reference_bboxes = sample["bboxes"].cuda()
-            num_ref_bboxes = sample["num_bboxes"].cuda()
-            # training.one_step(point_voxel, image_data, reference_bboxes)
+            num_ref_bboxes = sample["num_bboxes"]
+            training.one_step(point_voxel, image_data, reference_bboxes, num_ref_bboxes)
             if batch_ndx % 100 == 0:
                 print("training at ", batch_ndx, "is processed")
             if batch_ndx % 500 == 0:
                 test_index = np.random.randint(len(dataset))
-                image_data = sample['image'].cuda()
-                point_voxel = sample['pointcloud'].cuda()
-                reference_bboxes = sample['bboxes'].cuda()
-                loss_value, pred_cls, pred_reg = training.get_loss_value(point_voxel, image_data, reference_bboxes,num_ref_bboxes)
+                loss_value, _, _ = training.get_loss_value(point_voxel, image_data, reference_bboxes, num_ref_bboxes)
                 print('[%d/%d][%d/%d]\tLoss: %.4f in traning dataset'
                       % (epoch, num_epochs, batch_ndx, data_length, loss_value))
-        for batch_ndx, sample in enumerate(data_loader):
+        for batch_ndx, sample in enumerate(data_loader_test):
             image_data = sample['image'].cuda()
             point_voxel = sample['pointcloud'].cuda()
             reference_bboxes = sample['bboxes'].cuda()

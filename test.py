@@ -51,16 +51,16 @@ class Test:
     def get_eval_value_onestep(self, lidar_image, camera_image, object_data, plot_bev_image=False):
 
         start = time.time()
-        pred_cls, pred_reg = self.net(lidar_image, camera_image)
+        pred_cls, pred_reg, pred_bbox_f = self.net(lidar_image, camera_image)
         inter_1 = time.time()
         # print("inference algorithm time :", inter_1 - start, "s")   
         pred_cls = pred_cls.cpu().clone().detach()
-        pred_reg = pred_reg.cpu().clone().detach()
+        pred_bbox_f = pred_bbox_f.cpu().clone().detach()
 
         inter_2 = time.time()
         # print("device to host time :", inter_2 - inter_1, "s")   ## its toooooooo slow
   
-        pred_bboxes = self.get_bboxes(pred_cls, pred_reg, score_threshold=0.7)
+        pred_bboxes = self.get_bboxes(pred_cls, pred_bbox_f, score_threshold=0.7)
         inter_3 = time.time()
         # print("get_bboxes time :", inter_3 - inter_2, "s")    
         refined_bbox = self.NMS_IOU(pred_bboxes, nms_iou_score_theshold=0.01)
