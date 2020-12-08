@@ -53,7 +53,7 @@ class CarlaDataset(Dataset):
                 voxelized_lidar, point_cloud_raw, uv, num_points_raw = self.Voxelization_Projection(lidar_data)
                 if (self.want_bev_image):
                     bev_image = self.getLidarImage(lidar_data)
-                    bev_image_with_bbox = putBoundingBox(bev_image, reference_bboxes)
+                    # bev_image_with_bbox = putBoundingBox(bev_image, reference_bboxes)
                     return {'image': image_data,
                             'bboxes': reference_bboxes,
                             "num_bboxes": num_reference_bboxes,
@@ -61,7 +61,7 @@ class CarlaDataset(Dataset):
                             "pointcloud_raw": point_cloud_raw,
                             "projected_loc_uv": uv,
                             "num_points_raw": num_points_raw,
-                            "lidar_bev_2Dimage": bev_image_with_bbox}
+                            "lidar_bev_2Dimage": bev_image}
                 else:
                     return {'image': image_data,
                             'bboxes': reference_bboxes,
@@ -172,6 +172,7 @@ class CarlaDataset(Dataset):
         v_diff = v_cam - v_lidar
         q = quaternion.from_euler_angles(v_diff)
         R_ = quaternion.as_rotation_matrix(q)
+        print(R_)
         RT = np.concatenate((R_,trans), axis=-1)
         return RT
 
@@ -222,7 +223,7 @@ class CarlaDataset(Dataset):
     def getLidarImage(self, lidar_data):
         lidar_image = torch.zeros(1, 700, 700)
         for lidar_point in lidar_data:
-            if valid_point(lidar_point):
+            if self.valid_point(lidar_point):
                 loc_x = int(lidar_point[-3] * 10)
                 loc_y = int(lidar_point[-2] * 10 + 350)
                 lidar_image[0, loc_x, loc_y] = 1

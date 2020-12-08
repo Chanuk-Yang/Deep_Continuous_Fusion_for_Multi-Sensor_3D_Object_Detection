@@ -48,7 +48,7 @@ class Test:
     def get_num_P(self):
         return self.num_P
 
-    def get_eval_value_onestep(self, lidar_image, camera_image, object_data, plot_bev_image=False):
+    def get_eval_value_onestep(self, lidar_image, camera_image, object_data, bev_image, plot_bev_image=False):
 
         start = time.time()
         pred_cls, pred_reg, pred_bbox_f = self.net(lidar_image, camera_image)
@@ -68,11 +68,9 @@ class Test:
         # print("NMS time :", time.time() - inter_3, "s") 
         # print("total algorithm time :", time.time() - start, "s")
         # print("=" * 50)
-        # self.loss_value = self.loss_total(object_data, pred_cls, pred_reg)
         # print(refined_bbox)
-
         if plot_bev_image:
-            lidar_image_with_bboxes = putBoundingBox(lidar_image, refined_bbox[0])
+            lidar_image_with_bboxes = putBoundingBox(bev_image, refined_bbox[0])
             save_image(lidar_image_with_bboxes, 'image/lidar_image.png')
         
         self.precision_recall_singleshot(refined_bbox, object_data) # single batch
@@ -235,8 +233,6 @@ class Test:
             for iou_threshold in self.IOU_threshold:
                 precisions[iou_threshold].append(num_tp_set[iou_threshold] / num_P)
                 recalls[iou_threshold].append(num_tp_set[iou_threshold] / self.num_T)
-        print("precisions: ", precisions)
-        print("recalls: ", recalls)
         if plot_AP_graph:
             fig = plt.figure()
             ax = fig.add_subplot(111)

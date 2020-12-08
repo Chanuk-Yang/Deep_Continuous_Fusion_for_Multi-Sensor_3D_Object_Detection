@@ -44,15 +44,12 @@ def getPositionOfPositive(anchor_bbox_feature, ref_bboxes, regress_type, sample_
     temp_cnt = 0
 
     for i, ref_bbox in enumerate(ref_bboxes):
+        positive_position_idx[i] = []
+
         point_x = int(ref_bbox[0]*10/4)   # (0~ 700/4)
         point_y = int((ref_bbox[1]*10 + 350)/4)  #(0 ~ 700/4)
-
-        
-
         if point_x < 0 or point_x > H - 1 or point_y < 0 or point_y > W - 1:
             continue
-
-        positive_position_idx[i] = []
 
         for x_int in range(5):
             pos_x = point_x - 2 + x_int
@@ -175,10 +172,10 @@ def getRegSum(index, positive_position_list, reference_bboxes, predicted_regress
     # predicted_regress_feature = x : ?, y: ?, size : [700/4, 700/4]
     # anchor = x : 0~70.0, y : -35.0~35.0,  size : [700/4, 700/4]
     
+    # back propagation is error. Batch sum and loss device type is error i think
     
     positive_size = len(positive_position_list)
-
-    reg_loss = 0
+    reg_loss = torch.zeros(1)
     for idx, reference_box in enumerate(reference_bboxes):
 
         box_list = []
@@ -187,13 +184,12 @@ def getRegSum(index, positive_position_list, reference_bboxes, predicted_regress
             box_list.append(predicted_regress_feature[:,positive_position[0], positive_position[1]])
             abox_list.append(anchor[:,:, positive_position[0], positive_position[1]]) #[2,7]
 
-
+        if len(box_list) == 0:
+            continue
         predicted_box = torch.stack(box_list, dim=0) #[N,14], offset bbox set
         anchor_box = torch.stack(abox_list, dim=0) #[N,2,7], original bbox set
         
-        
-        loss = LossReg(reference_box, predicted_box, anchor_box)
-
+        loss = LossReg(reference_box, predicted_box, anchor_box).cpu()
 
         reg_loss +=loss
 
@@ -232,13 +228,12 @@ class LossTotal(nn.Module):
         
         # print('predicted_regress_feature_batch size : ',predicted_regress_feature_batch.shape)
         
-        # total_loss = torch.zeros(0).cuda()
+        total_loss = torch.zeros(1)
         
         # print('anchor_set size before : ',self.anchor_set.shape)
         self.anchor_set_ = self.anchor_set.unsqueeze(0).repeat(B,1,1,1,1)
         
         # print('anchor_set size : ',self.anchor_set_.shape)
-        
         for b in range(B):
             reference_bboxes = reference_bboxes_batch[b,:num_ref_bbox_batch[b]]
             predicted_class_feature = predicted_class_feature_batch[b]
@@ -269,8 +264,7 @@ class LossTotal(nn.Module):
             1. make regression loss
             2. omit the reference object when the points are few in bounding box (or...)
             """
-
-        total_loss = total_loss_class + Reg_loss
+            total_loss += total_loss_class + Reg_loss
 
         return total_loss
 

@@ -47,7 +47,7 @@ if __name__ == '__main__':
     os.environ['CUDA_VISIBLE_DEVICES'] = str(cuda_vis_dev_num)
     if dataset_category == "carla":
         dataset = CarlaDataset()
-        dataset_test = CarlaDataset(mode="test")
+        dataset_test = CarlaDataset(mode="test",want_bev_image=True)
         print("carla dataset is used for training")
     elif dataset_category =="kitti":
         dataset = KittiDataset()
@@ -62,7 +62,7 @@ if __name__ == '__main__':
     num_epochs = 60
     training = Train()
     test = Test(training.model)
-    data_length = len(dataset)
+    data_length = len(data_loader)
     for epoch in range(num_epochs):
         for batch_ndx, sample in enumerate(data_loader):
             image_data = sample['image'].cuda()
@@ -75,18 +75,36 @@ if __name__ == '__main__':
             if batch_ndx % 500 == 0:
                 test_index = np.random.randint(len(dataset))
                 loss_value, _, _ = training.get_loss_value(point_voxel, image_data, reference_bboxes, num_ref_bboxes)
+                print("="*50)
                 print('[%d/%d][%d/%d]\tLoss: %.4f in traning dataset'
                       % (epoch, num_epochs, batch_ndx, data_length, loss_value))
+                print("number of reference bbox per batch is ", num_ref_bboxes)
+                for batch_ndx_, sample_ in enumerate(data_loader_test):
+                    image_data_ = sample_['image'].cuda()
+                    point_voxel_ = sample_['pointcloud'].cuda()
+                    reference_bboxes_ = sample_['bboxes'].cpu().clone().detach()
+                    num_ref_bboxes_ = sample_["num_bboxes"]
+                    bev_image_ = sample_["lidar_bev_2Dimage"]
+                    test.get_eval_value_onestep(point_voxel_, image_data_, reference_bboxes_, bev_image_, plot_bev_image=False)
+                    if batch_ndx_ > 20:
+                        print("accumulated number of true data is ", test.get_num_T())
+                        print("accumulated number of positive data is ", test.get_num_P())
+                        break
+                test.display_average_precision(plot_AP_graph=True)
+                print("="*50)
+                test.initialize_ap()
         for batch_ndx, sample in enumerate(data_loader_test):
             image_data = sample['image'].cuda()
             point_voxel = sample['pointcloud'].cuda()
-            reference_bboxes = sample['bboxes'].cuda()
-            test.get_eval_value_onestep(point_voxel, image_data, reference_bboxes,num_ref_bboxes)
-            if batch_ndx % 200 == 0:
+            reference_bboxes = sample['bboxes'].cpu().clone().detach()
+            num_ref_bboxes = sample["num_bboxes"]
+            bev_image = sample["lidar_bev_2Dimage"]
+            test.get_eval_value_onestep(point_voxel, image_data, reference_bboxes, bev_image, plot_bev_image=False)
+            if batch_ndx > 20:
                 print("accumulated number of true data is ", test.get_num_T())
                 print("accumulated number of positive data is ", test.get_num_P())
                 print("="*50)
-            if batch_ndx > 20:
                 break
         test.display_average_precision(plot_AP_graph=True)
+        print("="*50)
         test.initialize_ap()
