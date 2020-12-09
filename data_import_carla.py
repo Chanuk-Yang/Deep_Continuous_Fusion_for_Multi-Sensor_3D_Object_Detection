@@ -2,6 +2,7 @@ import torch
 import os
 import h5py
 from torch.utils.data import Dataset
+from torchvision.utils import save_image
 from data_import import putBoundingBox
 import time
 import numpy as np
@@ -29,7 +30,10 @@ class CarlaDataset(Dataset):
         RT = self.get_extrinsic_parameter()
         C = self.get_intrinsic_parameter()
         CRT = np.matmul(C, RT)
-        self.CRT_tensor = torch.tensor(CRT).permute(1,0).cuda().type(torch.float)
+        self.CRT_tensor = torch.tensor(CRT).permute(1,0).type(torch.float)
+        self.pc_to_voxel_indice = torch.tensor([[10,0,0,0],
+                                                [0,10,0,350],
+                                                [0,0,10,24]], dtype=torch.float).permute(1,0)
 
     def __len__(self):
         return self.length
@@ -50,9 +54,10 @@ class CarlaDataset(Dataset):
                 object_datas, lidar_data, image_data = self.getOneStepData(data, id)
                 image_data = torch.tensor(image_data).permute(2, 0, 1).type(torch.float)
                 reference_bboxes, num_reference_bboxes = self.arangeLabelData(object_datas)
+                # voxelized_lidar = self.Voxelization_Projection(lidar_data)
                 voxelized_lidar, point_cloud_raw, uv, num_points_raw = self.Voxelization_Projection(lidar_data)
                 if (self.want_bev_image):
-                    bev_image = self.getLidarImage(lidar_data)
+                    bev_image = self.getLidarImage(point_cloud_raw)
                     # bev_image_with_bbox = putBoundingBox(bev_image, reference_bboxes)
                     return {'image': image_data,
                             'bboxes': reference_bboxes,
@@ -127,7 +132,6 @@ class CarlaDataset(Dataset):
         uint8 CLASSIFICATION_SIGN=11
         """
         ref_bboxes = torch.zeros(20,9)
-        reference_bboxes = []
         i = 0
         for object_data in object_datas:
             if i>50:
@@ -150,10 +154,9 @@ class CarlaDataset(Dataset):
         image_name = 'center_image_data'
         lidar_name = 'lidar_data'
         object_data_name = 'object_data'  # relative position and rotation data
-        
-        lidar_data = np.array(data[id][lidar_name])
-        object_data = np.array(data[id][object_data_name])
-        image_data = np.array(data[id][image_name])
+        object_data = torch.tensor(np.array(data[id][object_data_name]))                   # N * 10 (x, y, z, roll, pitch, yaw, wid, len, hei, class)
+        lidar_data = torch.tensor(np.array(data[id][lidar_name])).type(torch.float)[:,3:6] # N * 3  (x, y, z)        
+        image_data = torch.tensor(np.array(data[id][image_name]))                          # 480*640*3
         
         return object_data, lidar_data, image_data
 
@@ -165,14 +168,12 @@ class CarlaDataset(Dataset):
         return hdf5_id_dict
 
     def get_extrinsic_parameter(self):
-        # translation is 0, 0, 0
-        trans = np.zeros((3,1))
+        trans = np.zeros((3,1)) # translation is 0, 0, 0
         v_lidar = np.array([  -1.57079633,    3.12042851,   -1.57079633 ])
         v_cam = np.array([  -3.13498819,    1.59196951,    1.56942932 ])
         v_diff = v_cam - v_lidar
         q = quaternion.from_euler_angles(v_diff)
         R_ = quaternion.as_rotation_matrix(q)
-        print(R_)
         RT = np.concatenate((R_,trans), axis=-1)
         return RT
 
@@ -183,16 +184,15 @@ class CarlaDataset(Dataset):
         return cameraMatrix
 
     def Projection(self, point_cloud_raw):
-        point_cloud_raw = torch.tensor(point_cloud_raw).cuda()
-        ones = torch.ones((point_cloud_raw.shape[0],1)).cuda()
+        ones = torch.ones((point_cloud_raw.shape[0],1))
         xyz_one = torch.cat((point_cloud_raw, ones), dim=-1) # input        
         uv_z = torch.matmul(xyz_one, self.CRT_tensor).permute(1,0)
         uv = uv_z/uv_z[-1]
         uv = uv[:2]
-        uv = torch.where(uv[0] > 0, uv, torch.tensor(0).type(torch.float).cuda())
-        uv = torch.where(uv[0] < 640, uv, torch.tensor(0).type(torch.float).cuda())
-        uv = torch.where(uv[1] > 0, uv, torch.tensor(0).type(torch.float).cuda())
-        uv = torch.where(uv[1] < 480, uv, torch.tensor(0).type(torch.float).cuda())
+        uv = torch.where(uv[0] > 0, uv, torch.tensor(0).type(torch.float))
+        uv = torch.where(uv[0] < 640, uv, torch.tensor(0).type(torch.float))
+        uv = torch.where(uv[1] > 0, uv, torch.tensor(0).type(torch.float))
+        uv = torch.where(uv[1] < 480, uv, torch.tensor(0).type(torch.float))
         indices = torch.nonzero(uv)
         indices = indices[:int(indices.shape[0]/2),1]
         filtered_points_raw = point_cloud_raw[indices]
@@ -201,48 +201,57 @@ class CarlaDataset(Dataset):
 
     def Voxelization_Projection(self, lidar_data):
         # Voxelization
+        lidar_data = lidar_data.permute(1,0) # 3 * N
+        lidar_data = torch.where(lidar_data[0] > 0, lidar_data, torch.tensor(0).type(torch.float))
+        lidar_data = torch.where(lidar_data[0] < 70.0, lidar_data, torch.tensor(0).type(torch.float))
+        lidar_data = torch.where(lidar_data[1] > -35.0, lidar_data, torch.tensor(0).type(torch.float))
+        lidar_data = torch.where(lidar_data[1] < 35.0, lidar_data, torch.tensor(0).type(torch.float))
+        lidar_data = torch.where(lidar_data[2] > -2.4, lidar_data, torch.tensor(0).type(torch.float))
+        lidar_data = torch.where(lidar_data[2] < 0.8, lidar_data, torch.tensor(0).type(torch.float))
+        valid_indices = torch.nonzero(lidar_data)
+        valid_indices = valid_indices[:int(valid_indices.shape[0]/3),1]        
+        lidar_data = lidar_data.permute(1,0)[valid_indices]
+        lidar_data_ = torch.cat((lidar_data, torch.ones(lidar_data.shape[0],1).type(torch.float)), dim=-1)
+        indices = torch.matmul(lidar_data_, self.pc_to_voxel_indice).type(torch.long).permute(1,0)
         lidar_voxel = torch.zeros(32, 700, 700)
-        point_cloud_raw = []
-        for lidar_point in lidar_data:
-            if self.valid_point(lidar_point):
-                loc_x = int(lidar_point[-3] * 10)
-                loc_y = int(lidar_point[-2] * 10 + 350)
-                loc_z = int(lidar_point[-1] * 10 + 24)
-                lidar_voxel[loc_z, loc_x, loc_y] = 1
-                point_cloud_raw.append([lidar_point[-3], lidar_point[-2], lidar_point[-1]])
-
+        lidar_voxel[indices[2],indices[0],indices[1]]=1
+        
         # Projection
-        uv, filtered_points_raw = self.Projection(point_cloud_raw)
+        uv, filtered_points_raw = self.Projection(lidar_data)
         num_point_cloud_raw = filtered_points_raw.shape[0]
-        point_cloud_raw_tensor = torch.zeros(20000, 3).cuda()
+        point_cloud_raw_tensor = torch.zeros(20000, 3)
         point_cloud_raw_tensor[:num_point_cloud_raw,:] = filtered_points_raw
-        uv_tensor = torch.zeros(20000, 2).cuda()
+        uv_tensor = torch.zeros(20000, 2)
         uv_tensor[:num_point_cloud_raw,:] = uv
         return lidar_voxel, point_cloud_raw_tensor, uv_tensor, num_point_cloud_raw
 
     def getLidarImage(self, lidar_data):
-        lidar_image = torch.zeros(1, 700, 700)
+        lidar_image = torch.zeros(3, 700, 700)
         for lidar_point in lidar_data:
             if self.valid_point(lidar_point):
                 loc_x = int(lidar_point[-3] * 10)
                 loc_y = int(lidar_point[-2] * 10 + 350)
-                lidar_image[0, loc_x, loc_y] = 1
+                lidar_image[:, loc_x, loc_y] = 1
         return lidar_image
 
 if __name__ == "__main__":
-    dataset = CarlaDataset(mode="test")
+    os.environ['CUDA_VISIBLE_DEVICES'] = '2'
+    dataset = CarlaDataset(mode="test", want_bev_image=True)
     data_loader = torch.utils.data.DataLoader(dataset,
-                                          batch_size=4,
+                                          batch_size=2,
                                           shuffle=True)
+    start = time.time()
     for batch_ndx, sample in enumerate(data_loader):
+        print("total time: ", time.time() - start)
+        start = time.time()
         print("batch_ndx is ", batch_ndx)
         print("sample keys are ", sample.keys())
         print("bbox shape is ", sample["bboxes"].shape)
         print("num bboxes is ", sample["num_bboxes"])
         print("image shape is ", sample["image"].shape)
         print("pointcloud shape is ", sample["pointcloud"].shape)
-
-
+        print("bev image shape: ", sample["lidar_bev_2Dimage"].shape)
+        save_image(sample["lidar_bev_2Dimage"][0], 'image/lidar_image_{}.png'.format(batch_ndx))
         print("pointcloud_raw shape is ", sample["pointcloud_raw"].shape)
         print("num points is ", sample["num_points_raw"])
         print("projected_loc_uv shape is ", sample["projected_loc_uv"].shape)
