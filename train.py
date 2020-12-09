@@ -2,6 +2,8 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torchvision.utils import save_image
+from torch.nn.parallel import DistributedDataParallel as DDP
+
 import os
 import numpy as np
 import argparse
@@ -9,7 +11,7 @@ import argparse
 from data_import_carla import CarlaDataset
 # from kitti import KittiDataset
 from loss import LossTotal
-from model import LidarBackboneNetwork, ObjectDetection_DCF
+from model import ObjectDetection_DCF
 from data_import import putBoundingBox
 from test import Test
 
@@ -18,6 +20,7 @@ class Train(nn.Module):
         super().__init__()
         self.loss_total = LossTotal()
         self.model = ObjectDetection_DCF().cuda()
+        self.model = DDP(self.model,device_ids=[0,1,2,3], output_device=0, find_unused_parameters=True)
         self.loss_value = None
         lr = 0.0001
         beta1 = 0.9
@@ -44,7 +47,11 @@ if __name__ == '__main__':
     dataset_category = args.data
     cuda_vis_dev_num = args.cuda
 
-    os.environ['CUDA_VISIBLE_DEVICES'] = str(cuda_vis_dev_num)
+    # os.environ['CUDA_VISIBLE_DEVICES'] = str(cuda_vis_dev_num)
+    os.environ['CUDA_VISIBLE_DEVICES'] = '1,3,4,5'
+    os.environ['MASTER_ADDR'] = 'localhost'
+    os.environ['MASTER_PORT'] = '12355'
+    torch.distributed.init_process_group(backend='nccl', world_size=1, rank=0)
     if dataset_category == "carla":
         dataset = CarlaDataset()
         dataset_test = CarlaDataset(mode="test",want_bev_image=True)
@@ -53,12 +60,15 @@ if __name__ == '__main__':
         dataset = KittiDataset()
         dataset_test = KittiDataset(mode="test")
         print("kitti dataset is used for training")
+        
+    train_sampler = torch.utils.data.distributed.DistributedSampler(dataset, shuffle=True)
+    train_sampler_test = torch.utils.data.distributed.DistributedSampler(dataset_test, shuffle=True)
     data_loader = torch.utils.data.DataLoader(dataset,
-                                          batch_size=2,
-                                          shuffle=True)
+                                          batch_size=8,
+                                          sampler=train_sampler)
     data_loader_test = torch.utils.data.DataLoader(dataset_test,
-                                          batch_size=2,
-                                          shuffle=True)
+                                          batch_size=8,
+                                          sampler=train_sampler_test)
     num_epochs = 60
     training = Train()
     test = Test(training.model)
@@ -86,7 +96,7 @@ if __name__ == '__main__':
                     num_ref_bboxes_ = sample_["num_bboxes"]
                     bev_image_ = sample_["lidar_bev_2Dimage"]
                     test.get_eval_value_onestep(point_voxel_, image_data_, reference_bboxes_, bev_image_, plot_bev_image=False)
-                    if batch_ndx_ > 20:
+                    if batch_ndx_ > 5:
                         print("accumulated number of true data is ", test.get_num_T())
                         print("accumulated number of positive data is ", test.get_num_P())
                         break
