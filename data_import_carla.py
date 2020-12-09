@@ -54,10 +54,9 @@ class CarlaDataset(Dataset):
                 object_datas, lidar_data, image_data = self.getOneStepData(data, id)
                 image_data = torch.tensor(image_data).permute(2, 0, 1).type(torch.float)
                 reference_bboxes, num_reference_bboxes = self.arangeLabelData(object_datas)
-                # voxelized_lidar = self.Voxelization_Projection(lidar_data)
-                voxelized_lidar, point_cloud_raw, uv, num_points_raw = self.Voxelization_Projection(lidar_data)
+                voxelized_lidar, point_cloud_raw, uv, num_points_raw, indices_for_bev = self.Voxelization_Projection(lidar_data)
                 if (self.want_bev_image):
-                    bev_image = self.getLidarImage(point_cloud_raw)
+                    bev_image = self.getLidarImage(indices_for_bev)
                     # bev_image_with_bbox = putBoundingBox(bev_image, reference_bboxes)
                     return {'image': image_data,
                             'bboxes': reference_bboxes,
@@ -105,14 +104,6 @@ class CarlaDataset(Dataset):
         loc_x = object_data[0]
         loc_y = object_data[1]
         if loc_x >= 0 and loc_x < 70.0 and loc_y >= -35.0 and loc_y < 35.0:
-            return True
-        return False
-
-    def valid_point(self, point):
-        loc_x = int(point[-3] * 10)
-        loc_y = int(point[-2] * 10 + 350)
-        loc_z = int(point[-1] * 10 + 24)
-        if (loc_x > 0 and loc_x < 700 and loc_y > 0 and loc_y < 700 and loc_z > 0 and loc_z < 32):
             return True
         return False
 
@@ -223,15 +214,11 @@ class CarlaDataset(Dataset):
         point_cloud_raw_tensor[:num_point_cloud_raw,:] = filtered_points_raw
         uv_tensor = torch.zeros(20000, 2)
         uv_tensor[:num_point_cloud_raw,:] = uv
-        return lidar_voxel, point_cloud_raw_tensor, uv_tensor, num_point_cloud_raw
+        return lidar_voxel, point_cloud_raw_tensor, uv_tensor, num_point_cloud_raw, indices
 
-    def getLidarImage(self, lidar_data):
+    def getLidarImage(self, indices_for_bev):
         lidar_image = torch.zeros(3, 700, 700)
-        for lidar_point in lidar_data:
-            if self.valid_point(lidar_point):
-                loc_x = int(lidar_point[-3] * 10)
-                loc_y = int(lidar_point[-2] * 10 + 350)
-                lidar_image[:, loc_x, loc_y] = 1
+        lidar_image[:, indices_for_bev[0], indices_for_bev[1]] = 1
         return lidar_image
 
 if __name__ == "__main__":
