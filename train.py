@@ -42,7 +42,7 @@ class Train(nn.Module):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='deep continuous fusion training is doing')
     parser.add_argument('--data', type=str, default="carla", help='Data type, choose [carla] or [kitti]')
-    parser.add_argument('--cuda', type=int, default=0, help="cuda visible device number. you can choose 0~7")
+    parser.add_argument('--cuda', type=list, default=0, help="list of cuda visible device number. you can choose 0~7")
     args = parser.parse_args()
     dataset_category = args.data
     cuda_vis_dev_num = args.cuda
@@ -74,6 +74,7 @@ if __name__ == '__main__':
     test = Test(training.model)
     data_length = len(data_loader)
     for epoch in range(num_epochs):
+        torch.save(training.model.state_dict(), "./saved_model/model")
         for batch_ndx, sample in enumerate(data_loader):
             image_data = sample['image'].cuda()
             point_voxel = sample['pointcloud'].cuda()
@@ -95,10 +96,12 @@ if __name__ == '__main__':
                     reference_bboxes_ = sample_['bboxes'].cpu().clone().detach()
                     num_ref_bboxes_ = sample_["num_bboxes"]
                     bev_image_ = sample_["lidar_bev_2Dimage"]
-                    test.get_eval_value_onestep(point_voxel_, image_data_, reference_bboxes_, bev_image_, plot_bev_image=False)
+                    test.get_eval_value_onestep(point_voxel_, image_data_, reference_bboxes_)
+                    test.save_feature_result(bev_image_, reference_bboxes_, num_ref_bboxes_, batch_ndx_, epoch)
                     if batch_ndx_ > 5:
                         print("accumulated number of true data is ", test.get_num_T())
                         print("accumulated number of positive data is ", test.get_num_P())
+                        print("accumulated number of true positive data is ", test.get_num_TP_set())
                         break
                 test.display_average_precision(plot_AP_graph=True)
                 print("="*50)
@@ -109,12 +112,15 @@ if __name__ == '__main__':
             reference_bboxes = sample['bboxes'].cpu().clone().detach()
             num_ref_bboxes = sample["num_bboxes"]
             bev_image = sample["lidar_bev_2Dimage"]
-            test.get_eval_value_onestep(point_voxel, image_data, reference_bboxes, bev_image, plot_bev_image=False)
-            if batch_ndx > 20:
+            test.get_eval_value_onestep(point_voxel, image_data, reference_bboxes)
+            test.save_feature_result(bev_image, reference_bboxes, num_ref_bboxes, batch_ndx, epoch)
+            if batch_ndx > 10:
                 print("accumulated number of true data is ", test.get_num_T())
                 print("accumulated number of positive data is ", test.get_num_P())
+                print("accumulated number of true positive data is ", test.get_num_TP_set())
                 print("="*50)
                 break
         test.display_average_precision(plot_AP_graph=True)
         print("="*50)
         test.initialize_ap()
+        

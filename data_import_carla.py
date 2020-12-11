@@ -75,7 +75,6 @@ class CarlaDataset(Dataset):
                             "num_points_raw": num_points_raw,
                             "pointcloud" : voxelized_lidar}
 
-
     def load_dataset(self, mode = "train"):
         if mode == "train":
             label_path = "/media/mmc-server1/Server1/chanuk/ready_for_journal/dataset/carla_object"
@@ -84,8 +83,6 @@ class CarlaDataset(Dataset):
         else:
             print ("ERROR IN MODE TYPE, PRESS [train] OR [test] !!")
             return -1
-            
-                
         hdf5_files = {}
         print("reading hdf5 file...")
         file_list = os.listdir(label_path)
@@ -125,7 +122,7 @@ class CarlaDataset(Dataset):
         ref_bboxes = torch.zeros(20,9)
         i = 0
         for object_data in object_datas:
-            if i>50:
+            if i>20:
                 break
             if not self.valid_bbox(object_data):
                 continue
@@ -193,12 +190,12 @@ class CarlaDataset(Dataset):
     def Voxelization_Projection(self, lidar_data):
         # Voxelization
         lidar_data = lidar_data.permute(1,0) # 3 * N
-        lidar_data = torch.where(lidar_data[0] > 0, lidar_data, torch.tensor(0).type(torch.float))
-        lidar_data = torch.where(lidar_data[0] < 70.0, lidar_data, torch.tensor(0).type(torch.float))
-        lidar_data = torch.where(lidar_data[1] > -35.0, lidar_data, torch.tensor(0).type(torch.float))
-        lidar_data = torch.where(lidar_data[1] < 35.0, lidar_data, torch.tensor(0).type(torch.float))
-        lidar_data = torch.where(lidar_data[2] > -2.4, lidar_data, torch.tensor(0).type(torch.float))
-        lidar_data = torch.where(lidar_data[2] < 0.8, lidar_data, torch.tensor(0).type(torch.float))
+        lidar_data = torch.where(lidar_data[0] > 0.05, lidar_data, torch.tensor(0).type(torch.float))
+        lidar_data = torch.where(lidar_data[0] < 69.5, lidar_data, torch.tensor(0).type(torch.float))
+        lidar_data = torch.where(lidar_data[1] > -34.5, lidar_data, torch.tensor(0).type(torch.float))
+        lidar_data = torch.where(lidar_data[1] < 34.5, lidar_data, torch.tensor(0).type(torch.float))
+        lidar_data = torch.where(lidar_data[2] > -2.35, lidar_data, torch.tensor(0).type(torch.float))
+        lidar_data = torch.where(lidar_data[2] < 0.75, lidar_data, torch.tensor(0).type(torch.float))
         valid_indices = torch.nonzero(lidar_data)
         valid_indices = valid_indices[:int(valid_indices.shape[0]/3),1]        
         lidar_data = lidar_data.permute(1,0)[valid_indices]
@@ -237,6 +234,7 @@ if __name__ == "__main__":
         print("num bboxes is ", sample["num_bboxes"])
         print("image shape is ", sample["image"].shape)
         print("pointcloud shape is ", sample["pointcloud"].shape)
+        print("voxel type is ", sample["pointcloud"].type())
         print("bev image shape: ", sample["lidar_bev_2Dimage"].shape)
         save_image(sample["lidar_bev_2Dimage"][0], 'image/lidar_image_{}.png'.format(batch_ndx))
         print("pointcloud_raw shape is ", sample["pointcloud_raw"].shape)
