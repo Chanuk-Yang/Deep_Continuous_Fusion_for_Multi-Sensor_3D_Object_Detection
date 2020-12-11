@@ -18,7 +18,7 @@ def getAnchorboundingboxFeature():
     anc_x = torch.matmul(
         torch.linspace(0, 70.0, f_height).view(f_height, 1), torch.ones(1, f_width)).view(1, f_height, f_width)
     anc_y = torch.matmul(
-        torch.ones(f_height, 1), torch.linspace(35.0, -35.0, f_width).view(1, f_width)).view(1, f_height, f_width)
+        torch.ones(f_height, 1), torch.linspace(-35.0, 35.0, f_width).view(1, f_width)).view(1, f_height, f_width)
     anc_z = torch.ones(1, f_height, f_width) * 1
     anc_w = torch.ones(1, f_height, f_width) * width
     anc_l = torch.ones(1, f_height, f_width) * length
@@ -248,6 +248,10 @@ class LossTotal(nn.Module):
 if __name__ == '__main__':
     os.environ['CUDA_VISIBLE_DEVICES'] = '2'
     anchor_set_1, anchor_set_2 = getAnchorboundingboxFeature()
+    print(anchor_set_1[0, 0, :, :])
+    print(anchor_set_1[0, 1, :, :])
+    save_image(anchor_set_1[0, 0, :, :]/70.0, 'anchor/x.png')
+    save_image(anchor_set_1[0, 1, :, :]/(70.0)+0.5, 'anchor/y.png')
 #### Not use this function but will be use next time...
 # def getIOUfeature(anchor_bbox_feature, ref_bboxes):
 #     '''

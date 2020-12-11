@@ -19,7 +19,7 @@ class AnchorBondingBoxFeature(nn.Module):
         anc_x = torch.matmul(
                 torch.linspace(0, 70.0, self.f_height).view(self.f_height, 1), torch.ones(1, self.f_width)).view(1, self.f_height, self.f_width)
         anc_y = torch.matmul(
-                torch.ones(self.f_height, 1), torch.linspace(35.0, -35.0, self.f_width).view(1, self.f_width)).view(1, self.f_height, self.f_width)
+                torch.ones(self.f_height, 1), torch.linspace(-35.0, 35.0, self.f_width).view(1, self.f_width)).view(1, self.f_height, self.f_width)
         ones = torch.ones(1, self.f_height, self.f_width)
         anc_z = ones * 1
         anc_w = ones * self.width
