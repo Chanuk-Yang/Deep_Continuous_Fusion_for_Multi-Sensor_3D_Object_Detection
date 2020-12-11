@@ -30,10 +30,8 @@ class Test:
         nms_iou_score_theshold (0.01)
         plot_AP_graph (False)
         """
-        
         self.net = pre_trained_net
         self.net.eval()
-        # self.loss_total = LossTotal()
         self.num_TP_set = {}
         self.num_TP_set_per_predbox = []
         self.num_T = 0
@@ -48,72 +46,60 @@ class Test:
     def get_num_P(self):
         return self.num_P
 
-    def get_eval_value_onestep(self, lidar_image, camera_image, object_data, bev_image, plot_bev_image=False):
+    def get_num_TP_set(self):
+        return self.num_TP_set
 
-        start = time.time()
-        pred_cls, pred_reg, pred_bbox_f = self.net(lidar_image, camera_image)
-        inter_1 = time.time()
-        # print("inference algorithm time :", inter_1 - start, "s")   
-        pred_cls = pred_cls.cpu().clone().detach()
-        pred_bbox_f = pred_bbox_f.cpu().clone().detach()
-
-        inter_2 = time.time()
-        # print("device to host time :", inter_2 - inter_1, "s")   ## its toooooooo slow
-  
-        pred_bboxes = self.get_bboxes(pred_cls, pred_bbox_f, score_threshold=0.7)
-        inter_3 = time.time()
-        # print("get_bboxes time :", inter_3 - inter_2, "s")    
-        refined_bbox = self.NMS_IOU(pred_bboxes, nms_iou_score_theshold=0.01)
-        # refined_bbox = self.NMS_SAT(pred_bboxes)
-        # print("NMS time :", time.time() - inter_3, "s") 
-        # print("total algorithm time :", time.time() - start, "s")
-        # print("=" * 50)
-        # print(refined_bbox)
-        if plot_bev_image:
-            lidar_image_with_bboxes = putBoundingBox(bev_image, refined_bbox[0])
-            save_image(lidar_image_with_bboxes, 'image/lidar_image.png')
-        
-        self.precision_recall_singleshot(refined_bbox, object_data) # single batch
-        # return self.loss_value.item(), pred_cls, pred_reg
-    
-    def get_bboxes_sort(self, pred_cls, pred_reg, selet_bbox_threshold=50):        
-        
-        B, C, W, H = pred_cls.shape
-        selected_bboxes_batch =[]
+    def save_feature_result(self, bev_image, ref_bboxes, num_ref_bboxes, i, epoch):
+        B = ref_bboxes.shape[0]
+        file_list = os.listdir("./")
+        if not "result" in file_list:
+            os.mkdir("./result")
+        file_list = os.listdir("./result")
+        if not "epoch_{}".format(epoch) in file_list:
+            os.mkdir("./result/epoch_{}".format(epoch))
+        ref_bboxes = ref_bboxes.cpu().clone().numpy()
+        num_ref_bboxes = num_ref_bboxes.cpu().clone().numpy()
         for b in range(B):
-            # need to change two anchor at pred_cls and pred_reg
-            start = time.time()
-            sorted, indices = torch.sort(pred_cls[b,1].reshape(-1), descending=True)
-            # print("sort time :", time.time() - start, "s")   
-            row = indices // H
-            col = indices % H
-            selected_bboxes = pred_reg[b, :7, row[:selet_bbox_threshold], col[:selet_bbox_threshold]]
-            selected_bboxes_batch.append(selected_bboxes.permute((1,0)))
-        return selected_bboxes_batch
-    
-    
+            save_image(self.pred_cls[b, 1, :, :], 'result/epoch_{}/{}_in_{}_positive_image.png'.format(epoch,i,b ))
+            save_image(self.pred_cls[b, 0, :, :], 'result/epoch_{}/{}_in_{}_negative_image.png'.format(epoch,i,b))
+            bev_image_ = 0.5*bev_image[b].permute(1,2,0)
+            bev_image_with_bbox = putBoundingBox(bev_image_, self.refined_bbox[b], color="green").permute(2,0,1).type(torch.float)
+            save_image(bev_image_with_bbox, 'result/epoch_{}/{}_in_{}_bev_image_with_predbbox.png'.format(epoch,i,b))
+            
+            bev_image_with_bbox = putBoundingBox(bev_image_, ref_bboxes[b,:num_ref_bboxes[b]], color="red").permute(2,0,1).type(torch.float)
+            save_image(bev_image_with_bbox, 'result/epoch_{}/{}_in_{}_bev_image_with_refbbox.png'.format(epoch,i,b))
+
+    def get_eval_value_onestep(self, lidar_image, camera_image, ref_bboxes):
+
+        pred_cls, pred_reg, pred_bbox_f = self.net(lidar_image, camera_image)
+        self.pred_cls = pred_cls.cpu().clone().detach()
+        pred_bbox_f = pred_bbox_f.cpu().clone().detach()
+        pred_bboxes = self.get_bboxes(self.pred_cls, pred_bbox_f, score_threshold=0.7) # shape: b * list[tensor(N * 7)]
+        self.refined_bbox = self.NMS_IOU(pred_bboxes, nms_iou_score_theshold=0.01) # shape: b * list[N *list[tensor(7)]]
+        # self.refined_bbox = self.NMS_SAT(pred_bboxes) # shape: b * list[N *list[tensor(7)]]
+        self.precision_recall_singleshot(self.refined_bbox, ref_bboxes) # single batch
     
     def get_bboxes(self, pred_cls, pred_reg, score_threshold=0.7):
         """
         get bounding box score threshold instead of selecting bounding box
         """
-        B, C, W, H = pred_cls.shape
+        B, C_cls, W, H = pred_cls.shape
+        B, C_reg, W, H = pred_reg.shape
+        anchor_numb = int(C_cls/2)
+        reg_channel_per_anc = int(C_reg/anchor_numb)
         selected_bboxes_batch =[]
         for b in range(B):
-            # need to change two anchor at pred_cls and pred_reg
-            start = time.time()
-            pred_cls_= pred_cls[b,1].view(-1) > score_threshold
-
-
-            indices = torch.nonzero(pred_cls_).view(-1)
-            # print("bbox time: ", time.time() - start)
-
-            pred_reg_ = pred_reg[b, :7, :, :].view((7,-1))
-            selected_bboxes = pred_reg_[:,indices].permute(1,0)
-            selected_bboxes_batch.append(selected_bboxes)
+            selected_bboxes = []
+            for a in range (anchor_numb):
+                cls_pos = anchor_numb * a + 1
+                reg_cha = reg_channel_per_anc * a
+                pred_cls_= pred_cls[b,cls_pos].view(-1) > score_threshold
+                indices = torch.nonzero(pred_cls_).view(-1)
+                pred_reg_ = pred_reg[b, reg_cha:reg_cha+reg_channel_per_anc, :, :].view((reg_channel_per_anc,-1))
+                selected_bboxes_ = pred_reg_[:,indices].permute(1,0)
+                selected_bboxes += [selected_bboxes_]
+            selected_bboxes_batch.append(torch.cat(selected_bboxes, dim=0))
         return selected_bboxes_batch
-        
-        
 
     def NMS_IOU(self, pred_bboxes, nms_iou_score_theshold=0.01):
         filtered_bboxes_batch = []
@@ -150,9 +136,9 @@ class Test:
         for b in range(B):
             filtered_bboxes = []
             filtered_bboxes_index = []
-            if pred_bboxes[b].shape[0] == 0:
-                filtered_bboxes_batch.append(None)
-                continue
+            # if pred_bboxes[b].shape[0] == 0:
+            #     filtered_bboxes_batch.append(None)
+            #     continue
             for i in range(pred_bboxes[b].shape[0]):
                 bbox = pred_bboxes[b][i]
                 if len(filtered_bboxes) == 0:
@@ -174,7 +160,6 @@ class Test:
                 filtered_bboxes.append(pred_bboxes[b][ind])
             filtered_bboxes_batch.append(filtered_bboxes)
         return filtered_bboxes_batch
-        
         
     def precision_recall_singleshot(self, pred_bboxes, ref_bboxes):
         B,_,_ = ref_bboxes.shape
@@ -199,7 +184,6 @@ class Test:
                             for iou_threshold in self.IOU_threshold:
                                 if IOU_3d > iou_threshold:
                                     true_positive_cand_score[iou_threshold] = IOU_3d
-                    
                     for iou_threshold in self.IOU_threshold:
                         if iou_threshold in true_positive_cand_score:
                             self.num_TP_set[iou_threshold] += 1
@@ -207,7 +191,6 @@ class Test:
             for ref_bbox_ in ref_bboxes_sb:
                 if ref_bbox_[-1] == 1:
                     self.num_T += 1
-
         
     def display_average_precision(self, plot_AP_graph=False):
         """
@@ -218,10 +201,8 @@ class Test:
         for iou_threshold in self.IOU_threshold:
             total_precision[iou_threshold] = self.num_TP_set[iou_threshold] / (self.num_P + 0.00001)
             total_recall[iou_threshold] = self.num_TP_set[iou_threshold] / (self.num_T + 0.00001)
-
         print("Total Precision: ", total_precision)
         print("Total Recall: ", total_recall)
-
         precisions = {}
         recalls = {}
         num_P = 0
@@ -244,13 +225,8 @@ class Test:
                 else:
                     line = ax.plot([0,0])
                 lines.append(line)
-
             fig.legend(lines, labels=self.IOU_threshold, title="IOU threshold value")
             fig.savefig('ap_result/test.png')
-
-        
-
-
 
     def initialize_ap(self):
         self.num_TP_set = {}
@@ -260,17 +236,19 @@ class Test:
         for iou_threshold in self.IOU_threshold:
             self.num_TP_set[iou_threshold] = 0
 
+
 if __name__ == '__main__':
-    os.environ['CUDA_VISIBLE_DEVICES'] = '0'
+    os.environ['CUDA_VISIBLE_DEVICES'] = '2'
 
     # Focus on test dataset
-    dataset = CarlaDataset(mode="test")
+    dataset = CarlaDataset(mode="test",want_bev_image=True)
     print("dataset is ready")
     data_loader = torch.utils.data.DataLoader(dataset,
-                                          batch_size=4,
+                                          batch_size=2,
                                           shuffle=True)
     # Load pre-trained model. you can use the model during training instead of test_model 
     test_model = ObjectDetection_DCF().cuda()
+    # test_model.load_state_dict(torch.load("./saved_model/model"))
     test = Test(test_model)
     data_length = len(dataset)
     loss_value = None
@@ -285,9 +263,12 @@ if __name__ == '__main__':
         image_data = sample['image'].cuda()
         point_voxel = sample['pointcloud'].cuda()
         reference_bboxes = sample['bboxes'].cuda()
+        num_ref_bboxes = sample['num_bboxes'].cuda()
+        bev_image = sample['lidar_bev_2Dimage'].cuda()
         
         # evaluate AP in one image and voxel lidar
         test.get_eval_value_onestep(point_voxel, image_data, reference_bboxes)
+        test.save_feature_result(bev_image, reference_bboxes, num_ref_bboxes, batch_ndx, 1)
         print("accumulated number of true data is ", test.get_num_T())
         print("accumulated number of positive data is ", test.get_num_P())
         print("="*50)
