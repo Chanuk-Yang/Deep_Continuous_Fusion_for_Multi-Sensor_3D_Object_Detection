@@ -1,29 +1,24 @@
 import torch
 import torch.nn as nn
+from torchvision.utils import save_image
+
 import numpy as np
 import random
 import torch.nn.functional as F
-
+import os
 
 from IOU import get_3d_box, box3d_iou
 
 def getAnchorboundingboxFeature():
-    f_height = int(700/4) -1
-    f_width = int(700/4) - 1
-
+    f_height = int(700/4) 
+    f_width = int(700/4) 
     width = 2.0
     length = 4.0
     height = 1.5
-
-#     anc_x = torch.matmul(
-#         torch.ones(f_height, 1), torch.linspace(-1.0, 1.0, f_width).view(1, f_width)).view(1, f_height, f_width)
-#     anc_y = torch.matmul(
-#         torch.linspace(-1.0, 1.0, f_height).view(f_height, 1), torch.ones(1, f_width)).view(1, f_height, f_width)
-
     anc_x = torch.matmul(
-        torch.ones(f_height, 1), torch.linspace(0.0, 70.0, f_width).view(1, f_width)).view(1, f_height, f_width)
+        torch.linspace(0, 70.0, f_height).view(f_height, 1), torch.ones(1, f_width)).view(1, f_height, f_width)
     anc_y = torch.matmul(
-        torch.linspace(-35.0, 35.0, f_height).view(f_height, 1), torch.ones(1, f_width)).view(1, f_height, f_width)
+        torch.ones(f_height, 1), torch.linspace(35.0, -35.0, f_width).view(1, f_width)).view(1, f_height, f_width)
     anc_z = torch.ones(1, f_height, f_width) * 1
     anc_w = torch.ones(1, f_height, f_width) * width
     anc_l = torch.ones(1, f_height, f_width) * length
@@ -36,21 +31,16 @@ def getAnchorboundingboxFeature():
 
 def getPositionOfPositive(anchor_bbox_feature, ref_bboxes, regress_type, sample_threshold = 128):
     _, C, H, W = anchor_bbox_feature.shape
-
-
     positive_position_list = []
     positive_position_regress = []
     positive_position_idx = {}
     temp_cnt = 0
-
     for i, ref_bbox in enumerate(ref_bboxes):
         positive_position_idx[i] = []
-
         point_x = int(ref_bbox[0]*10/4)   # (0~ 700/4)
         point_y = int((ref_bbox[1]*10 + 350)/4)  #(0 ~ 700/4)
         if point_x < 0 or point_x > H - 1 or point_y < 0 or point_y > W - 1:
             continue
-
         for x_int in range(5):
             pos_x = point_x - 2 + x_int
             for y_int in range(5):
@@ -58,7 +48,6 @@ def getPositionOfPositive(anchor_bbox_feature, ref_bboxes, regress_type, sample_
                 if pos_x < 0 or pos_x > H - 1 or pos_y < 0 or pos_y > W - 1:
                     continue
                 positive_position_list.append([pos_x, pos_y])
-
                 if regress_type==0:
                     positive_position_regress.append([pos_x, pos_y])
                     positive_position_idx[i].append(temp_cnt)
@@ -68,16 +57,11 @@ def getPositionOfPositive(anchor_bbox_feature, ref_bboxes, regress_type, sample_
                         positive_position_regress.append([pos_x, pos_y]) #중심만 추가하기
                         positive_position_idx[i].append(temp_cnt)
                         temp_cnt+=1
-
 #     sample_idx = np.random.choice(len(positive_position_list), np.max(sample_threshold, len(positive_position_list)), replace=False)
-
     np.random.shuffle(positive_position_list)
     if len(positive_position_list) > sample_threshold:
         positive_position_list = positive_position_list[:sample_threshold]
-        
     return positive_position_idx, np.array(positive_position_regress), positive_position_list
-
-
 
 def getPositionOfNegative(anchor_bbox_feature, positive_position_list, sample_threshold = 128):
     _, C, H, W = anchor_bbox_feature.shape
@@ -119,7 +103,6 @@ def getClassSum(positive_position_list, negative_position_list, predicted_class,
     negative_size = len(negative_position_list)
     positive_label = torch.ones(positive_size, dtype=torch.long)
     negative_label = torch.zeros(negative_size, dtype=torch.long)
-
     for negative_position in negative_position_list:
         sampled_feature_negative = predicted_class[:, negative_position[0], negative_position[1]]
         negative_list.append(sampled_feature_negative)
@@ -143,16 +126,11 @@ def LossReg(ref_box, pred_box, a_box):
     # anchor_box : [N, 2, 7]
 
     N, num_anchor, char = a_box.shape
-
     ref_box = ref_box.unsqueeze(0).unsqueeze(0).repeat(N,num_anchor,1)
     pred_box = pred_box.reshape(N,num_anchor,char)
-    
-
     xyz_ref_offset = (ref_box[:,:,:3]-a_box[:,:,:3])/(a_box[:,:,:3]+0.00001)
     whd_ref_offset = torch.log(ref_box[:,:,3:6]/(a_box[:,:,3:6]+0.00001))
     ori_ref_offset = ref_box[:,:,-1] - a_box[:,:,-1]
-
-
     xyz_error = pred_box[:,:,:3] - xyz_ref_offset
     whd_error = pred_box[:,:,3:6] - whd_ref_offset
     ori_error = pred_box[:,:,-1] - ori_ref_offset
@@ -245,8 +223,8 @@ class LossTotal(nn.Module):
 
             negative_position_list = getPositionOfNegative(anchor, positive_position_list)
             
-            total_loss_class = getClassSum(positive_position_list, negative_position_list, predicted_class_feature[:2,:,:], self.loss_class)
-            total_loss_class += getClassSum(positive_position_list, negative_position_list, predicted_class_feature[2:4,:,:], self.loss_class)
+            total_loss_class = getClassSum(positive_position_list, negative_position_list, predicted_class_feature[:2,:,:], self.loss_class)    # per anchor
+            total_loss_class += getClassSum(positive_position_list, negative_position_list, predicted_class_feature[2:4,:,:], self.loss_class)  # per anchor
 
             ## anchor의 좌표를 절대 좌표로 바꿔야 한다.
             ## position_list_all은 positive_position이 다 들어간것, true 하나당 한 픽셀이려면 수정 필요
@@ -267,8 +245,9 @@ class LossTotal(nn.Module):
             total_loss += total_loss_class + Reg_loss
 
         return total_loss
-
-
+if __name__ == '__main__':
+    os.environ['CUDA_VISIBLE_DEVICES'] = '2'
+    anchor_set_1, anchor_set_2 = getAnchorboundingboxFeature()
 #### Not use this function but will be use next time...
 # def getIOUfeature(anchor_bbox_feature, ref_bboxes):
 #     '''
