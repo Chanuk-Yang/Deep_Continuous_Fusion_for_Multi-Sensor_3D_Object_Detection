@@ -21,12 +21,12 @@ class AnchorBondingBoxFeature(nn.Module):
         anc_y = torch.matmul(
                 torch.ones(self.f_height, 1), torch.linspace(-35.0, 35.0, self.f_width).view(1, self.f_width)).view(1, self.f_height, self.f_width)
         ones = torch.ones(1, self.f_height, self.f_width)
-        anc_z = ones * 1
-        anc_w = ones * self.width
-        anc_l = ones * self.length
-        anc_h = ones * self.height 
-        anc_ori = ones * 0
-        anc_ori_90 = ones * 3.1415926/2
+        anc_z = torch.ones(1, self.f_height, self.f_width) * (-4.5)
+        anc_w = torch.ones(1, self.f_height, self.f_width) * self.width
+        anc_l = torch.ones(1, self.f_height, self.f_width) * self.length
+        anc_h = torch.ones(1, self.f_height, self.f_width) * self.height 
+        anc_ori = torch.ones(1, self.f_height, self.f_width) * 0
+        anc_ori_90 = torch.ones(1, self.f_height, self.f_width) * 3.1415926/2
         anc_set_1 = torch.cat((anc_x, anc_y, anc_z, anc_l, anc_w, anc_h, anc_ori), 0)
         anc_set_2 = torch.cat((anc_x, anc_y, anc_z, anc_l, anc_w, anc_h, anc_ori_90), 0)
         anc_set = torch.cat((anc_set_1,anc_set_2), dim=0).unsqueeze(0) # dim = [1, 2*7, self.f_height, self.f_width]
@@ -112,10 +112,10 @@ class OffsettoBbox(nn.Module):
         x: x_reg [b,num_anc*7,wid,hei]
         """
         anc_set = self.anchor_bbox_feature().cuda()
-        pred_xyz_1 = x[:,:3,:,:] * anc_set[:,:3,:,:] + anc_set[:,:3,:,:]
+        pred_xyz_1 = x[:,:3,:,:] * (anc_set[:,3:6,:,:]) + anc_set[:,:3,:,:]
         pred_whl_1 = torch.exp(x[:,3:6,:,:]) * anc_set[:,3:6,:,:]
         pred_ori_1 = x[:,6:7,:,:] + anc_set[:,6:7,:,:]
-        pred_xyz_2 = x[:,7:10,:,:] * anc_set[:,7:10,:,:] + anc_set[:,7:10,:,:]
+        pred_xyz_2 = x[:,7:10,:,:] * anc_set[:,10:13,:,:] + anc_set[:,7:10,:,:]
         pred_whl_2 = torch.exp(x[:,10:13,:,:]) * anc_set[:,10:13,:,:]
         pred_ori_2 = x[:,13:14,:,:] + anc_set[:,13:14,:,:]
         pred_bbox_feature = torch.cat((pred_xyz_1, pred_whl_1, pred_ori_1,
