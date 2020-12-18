@@ -1,9 +1,12 @@
 from numpy import random
 from numpy.core.fromnumeric import argmax
+
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from torchvision.utils import save_image
+from torch.nn.parallel import DistributedDataParallel as DDP
+
 import os
 import numpy as np
 
@@ -37,6 +40,7 @@ class Test:
         self.num_T = 0
         self.num_P = 0
         self.IOU_threshold = [0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9, 0.95]
+        self.loss_total = LossTotal()
         for iou_threshold in self.IOU_threshold:
             self.num_TP_set[iou_threshold] = 0
 
@@ -69,17 +73,18 @@ class Test:
             bev_image_with_bbox = putBoundingBox(bev_image_, ref_bboxes[b,:num_ref_bboxes[b]], color="red").permute(2,0,1).type(torch.float)
             save_image(bev_image_with_bbox, 'result/epoch_{}/{}_in_{}_bev_image_with_refbbox.png'.format(epoch,i,b))
 
-    def get_eval_value_onestep(self, lidar_image, camera_image, ref_bboxes):
-
+    def get_eval_value_onestep(self, lidar_image, camera_image, ref_bboxes, num_ref_bboxes):
+        
         pred_cls, pred_reg, pred_bbox_f = self.net(lidar_image, camera_image)
         self.pred_cls = pred_cls.cpu().clone().detach()
         pred_bbox_f = pred_bbox_f.cpu().clone().detach()
-        pred_bboxes = self.get_bboxes(self.pred_cls, pred_bbox_f, score_threshold=0.7) # shape: b * list[tensor(N * 7)]
-        self.refined_bbox = self.NMS_IOU(pred_bboxes, nms_iou_score_theshold=0.01) # shape: b * list[N *list[tensor(7)]]
-        # self.refined_bbox = self.NMS_SAT(pred_bboxes) # shape: b * list[N *list[tensor(7)]]
+        self.loss_value = self.loss_total(ref_bboxes.cuda(), num_ref_bboxes, pred_cls, pred_reg, pred_bbox_f)
+        pred_bboxes = self.get_bboxes(self.pred_cls, pred_bbox_f, score_threshold=0.8) # shape: b * list[tensor(N * 7)]
+        # self.refined_bbox = self.NMS_IOU(pred_bboxes, nms_iou_score_theshold=0.01) # shape: b * list[N *list[tensor(7)]]
+        self.refined_bbox = self.NMS_SAT(pred_bboxes) # shape: b * list[N *list[tensor(7)]]
         self.precision_recall_singleshot(self.refined_bbox, ref_bboxes) # single batch
     
-    def get_bboxes(self, pred_cls, pred_reg, score_threshold=0.7):
+    def get_bboxes(self, pred_cls, pred_reg, score_threshold=0.8):
         """
         get bounding box score threshold instead of selecting bounding box
         """
@@ -107,6 +112,7 @@ class Test:
         for b in range(B):
             filtered_bboxes = []
             filtered_bboxes_index = []
+            print("pred bbox: ", pred_bboxes[b].shape[0])
             for i in range(pred_bboxes[b].shape[0]):
                 bbox = pred_bboxes[b][i]
                 if len(filtered_bboxes) == 0:
@@ -116,16 +122,19 @@ class Test:
                 box_size = bbox[3:6].numpy()
                 heading_angle = bbox[6].numpy()
                 cand_bbox_corners = get_3d_box(center, box_size, heading_angle)
+                j =0
                 for selected_bbox in filtered_bboxes:
-                    center_ = selected_bbox[:3].numpy()
+                    j +=1
+                    center_ = selected_bbox[:3].numpy()+0.0001
                     box_size_ = selected_bbox[3:6].numpy()
                     heading_angle_ = selected_bbox[6].numpy()
                     selected_bbox_corners = get_3d_box(center_, box_size_, heading_angle_)
                     (IOU_3d, IOU_2d) = box3d_iou(cand_bbox_corners, selected_bbox_corners)
-                    if IOU_3d < nms_iou_score_theshold:
-                        filtered_bboxes_index.append(i)
-            for ind in filtered_bboxes_index:
-                filtered_bboxes.append(pred_bboxes[b][ind])
+                    if IOU_3d > nms_iou_score_theshold:
+                        break
+                    else:
+                        if j == len(filtered_bboxes):
+                            filtered_bboxes.append(bbox)
             filtered_bboxes_batch.append(filtered_bboxes)
         return filtered_bboxes_batch
         
@@ -148,16 +157,19 @@ class Test:
                 box_size = bbox[3:6].numpy()
                 heading_angle = bbox[6].numpy()
                 cand_bbox_corners = get_vertice_rect(center, box_size, heading_angle)
+                j = 0
                 for selected_bbox in filtered_bboxes:
+                    j += 1
                     center_ = selected_bbox[:3].numpy()
                     box_size_ = selected_bbox[3:6].numpy()
                     heading_angle_ = selected_bbox[6].numpy()
                     selected_bbox_corners = get_vertice_rect(center_, box_size_, heading_angle_)
                     is_overlapped = separating_axis_theorem(cand_bbox_corners, selected_bbox_corners)
                     if is_overlapped:
-                        filtered_bboxes_index.append(i)
-            for ind in filtered_bboxes_index:
-                filtered_bboxes.append(pred_bboxes[b][ind])
+                        break
+                    else:
+                        if j == len(filtered_bboxes):
+                            filtered_bboxes.append(bbox)
             filtered_bboxes_batch.append(filtered_bboxes)
         return filtered_bboxes_batch
         
@@ -182,8 +194,8 @@ class Test:
                             ref_bbox_corners = get_3d_box(center_, box_size_, heading_angle_)
                             (IOU_3d, IOU_2d) = box3d_iou(pred_bbox_corners, ref_bbox_corners)
                             for iou_threshold in self.IOU_threshold:
-                                if IOU_3d > iou_threshold:
-                                    true_positive_cand_score[iou_threshold] = IOU_3d
+                                if IOU_2d > iou_threshold:
+                                    true_positive_cand_score[iou_threshold] = IOU_2d
                     for iou_threshold in self.IOU_threshold:
                         if iou_threshold in true_positive_cand_score:
                             self.num_TP_set[iou_threshold] += 1
@@ -239,7 +251,9 @@ class Test:
 
 if __name__ == '__main__':
     os.environ['CUDA_VISIBLE_DEVICES'] = '2'
-
+    os.environ['MASTER_ADDR'] = 'localhost'
+    os.environ['MASTER_PORT'] = '12354'
+    torch.distributed.init_process_group(backend='nccl', world_size=1, rank=0)
     # Focus on test dataset
     dataset = CarlaDataset(mode="test",want_bev_image=True)
     print("dataset is ready")
@@ -248,7 +262,8 @@ if __name__ == '__main__':
                                           shuffle=True)
     # Load pre-trained model. you can use the model during training instead of test_model 
     test_model = ObjectDetection_DCF().cuda()
-    # test_model.load_state_dict(torch.load("./saved_model/model"))
+    test_model = DDP(test_model,device_ids=[0], output_device=0, find_unused_parameters=True)
+    test_model.load_state_dict(torch.load("./saved_model/model"))
     test = Test(test_model)
     data_length = len(dataset)
     loss_value = None
@@ -262,15 +277,16 @@ if __name__ == '__main__':
         test_index = np.random.randint(data_length)
         image_data = sample['image'].cuda()
         point_voxel = sample['pointcloud'].cuda()
-        reference_bboxes = sample['bboxes'].cuda()
-        num_ref_bboxes = sample['num_bboxes'].cuda()
-        bev_image = sample['lidar_bev_2Dimage'].cuda()
+        reference_bboxes = sample['bboxes'].cpu().clone().detach()
+        num_ref_bboxes = sample['num_bboxes']
+        bev_image = sample['lidar_bev_2Dimage']
         
         # evaluate AP in one image and voxel lidar
-        test.get_eval_value_onestep(point_voxel, image_data, reference_bboxes)
-        test.save_feature_result(bev_image, reference_bboxes, num_ref_bboxes, batch_ndx, 1)
+        test.get_eval_value_onestep(point_voxel, image_data, reference_bboxes, num_ref_bboxes)
+        test.save_feature_result(bev_image, reference_bboxes, num_ref_bboxes, batch_ndx, 99)
         print("accumulated number of true data is ", test.get_num_T())
         print("accumulated number of positive data is ", test.get_num_P())
+        print("accumulated number of true positive data is ", test.get_num_TP_set())
         print("="*50)
         if batch_ndx > 10:
             break
