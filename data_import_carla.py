@@ -104,6 +104,21 @@ class CarlaDataset(Dataset):
             return True
         return False
 
+    def orientation_inner_bound(self, ori):
+        if ori > 3.141592:
+            while(1):
+                ori = ori - 3.141592
+                if ori > 0 and ori < 3.141592:
+                    break
+        elif ori < 0:
+            while(1):
+                ori = ori + 3.141592
+                if ori > 0 and ori < 3.141592:
+                    break
+        else:
+            ori = ori # 3 and 4 should be carefully look whether is pitch or roll
+        return ori
+
     def arangeLabelData(self, object_datas):
         """
         uint8 CLASSIFICATION_UNKNOWN=0
@@ -127,15 +142,16 @@ class CarlaDataset(Dataset):
             if not self.valid_bbox(object_data):
                 continue
             object_class = object_data[9]
-            rel_x = object_data[0]
-            rel_y = object_data[1]
-            rel_z = object_data[2]
-            ori = object_data[5]  # 3 and 4 should be carefully look whether is pitch or roll
-            width = object_data[6]
-            length = object_data[7]
-            height = object_data[8]
-            ref_bboxes[i,:] = torch.tensor([rel_x, rel_y, rel_z, length, width, height, ori, object_class, 1])
-            i+=1
+            if object_class == 6 or object_class == 7 or object_class == 9:
+                rel_x = object_data[0]
+                rel_y = object_data[1]
+                rel_z = object_data[2]
+                ori = self.orientation_inner_bound(object_data[5])
+                width = object_data[6]
+                length = object_data[7]
+                height = object_data[8]
+                ref_bboxes[i,:] = torch.tensor([rel_x, rel_y, rel_z, length, width, height, ori, object_class, 1])
+                i+=1
         return ref_bboxes, i
 
     def getOneStepData(self, data, id):
@@ -187,23 +203,48 @@ class CarlaDataset(Dataset):
 
         return uv.permute(1,0)[indices], filtered_points_raw
 
-    def Voxelization_Projection(self, lidar_data):
+    def Voxelization_Projection(self, lidar_data, interpolate=True):
         # Voxelization
         lidar_data = lidar_data.permute(1,0) # 3 * N
-        lidar_data = torch.where(lidar_data[0] > 0.05, lidar_data, torch.tensor(0).type(torch.float))
-        lidar_data = torch.where(lidar_data[0] < 69.5, lidar_data, torch.tensor(0).type(torch.float))
-        lidar_data = torch.where(lidar_data[1] > -34.5, lidar_data, torch.tensor(0).type(torch.float))
-        lidar_data = torch.where(lidar_data[1] < 34.5, lidar_data, torch.tensor(0).type(torch.float))
-        lidar_data = torch.where(lidar_data[2] > -2.35, lidar_data, torch.tensor(0).type(torch.float))
-        lidar_data = torch.where(lidar_data[2] < 0.75, lidar_data, torch.tensor(0).type(torch.float))
+        lidar_data = torch.where(lidar_data[0] > 0.00, lidar_data, torch.tensor(0).type(torch.float))
+        lidar_data = torch.where(lidar_data[0] < 69.8, lidar_data, torch.tensor(0).type(torch.float))
+        lidar_data = torch.where(lidar_data[1] > -35, lidar_data, torch.tensor(0).type(torch.float))
+        lidar_data = torch.where(lidar_data[1] < 34.8, lidar_data, torch.tensor(0).type(torch.float))
+        lidar_data = torch.where(lidar_data[2] > -2.4, lidar_data, torch.tensor(0).type(torch.float))
+        lidar_data = torch.where(lidar_data[2] < 0.6, lidar_data, torch.tensor(0).type(torch.float))
         valid_indices = torch.nonzero(lidar_data)
         valid_indices = valid_indices[:int(valid_indices.shape[0]/3),1]        
         lidar_data = lidar_data.permute(1,0)[valid_indices]
         lidar_data_ = torch.cat((lidar_data, torch.ones(lidar_data.shape[0],1).type(torch.float)), dim=-1)
-        indices = torch.matmul(lidar_data_, self.pc_to_voxel_indice).type(torch.long).permute(1,0)
-        lidar_voxel = torch.zeros(32, 700, 700)
-        lidar_voxel[indices[2],indices[0],indices[1]]=1
-        
+        if not interpolate:
+            indices = torch.matmul(lidar_data_, self.pc_to_voxel_indice).type(torch.long).permute(1,0)
+            lidar_voxel = torch.zeros(32, 700, 700)
+            lidar_voxel[indices[2],indices[0],indices[1]]=1
+        else:
+            indices_float = torch.matmul(lidar_data_, self.pc_to_voxel_indice).permute(1,0)
+            x = indices_float[0]
+            y = indices_float[1]
+            z = indices_float[2]
+            x_lower = indices_float[0].type(torch.long)
+            x_upper = indices_float[0].type(torch.long) + 1
+            y_lower = indices_float[1].type(torch.long)
+            y_upper = indices_float[1].type(torch.long) + 1
+            z_lower = indices_float[2].type(torch.long)
+            z_upper = indices_float[2].type(torch.long) + 1
+            dx = x - x_lower.type(torch.float)
+            dy = y - y_lower.type(torch.float)
+            dz = z - z_lower.type(torch.float)
+            lidar_voxel = torch.zeros(32, 700, 700)
+            lidar_voxel[z_lower, x_lower, y_lower] += (1-dx)*(1-dy)*(1-dz)
+            lidar_voxel[z_upper, x_lower, y_lower] += (1-dx)*(1-dy)*dz
+            lidar_voxel[z_lower, x_upper, y_lower] += dx*(1-dy)*(1-dz)
+            lidar_voxel[z_upper, x_upper, y_lower] += dx*(1-dy)*dz
+            lidar_voxel[z_lower, x_lower, y_upper] += (1-dx)*dy*(1-dz)
+            lidar_voxel[z_upper, x_lower, y_upper] += (1-dx)*dy*dz
+            lidar_voxel[z_lower, x_upper, y_upper] += dx*dy*(1-dz)
+            lidar_voxel[z_upper, x_upper, y_upper] += dx*dy*dz
+            indices = indices_float.type(torch.long)
+            
         # Projection
         uv, filtered_points_raw = self.Projection(lidar_data)
         num_point_cloud_raw = filtered_points_raw.shape[0]
@@ -236,7 +277,7 @@ if __name__ == "__main__":
         print("pointcloud shape is ", sample["pointcloud"].shape)
         print("voxel type is ", sample["pointcloud"].type())
         print("bev image shape: ", sample["lidar_bev_2Dimage"].shape)
-        save_image(sample["lidar_bev_2Dimage"][0], 'image/lidar_image_{}.png'.format(batch_ndx))
+        save_image(sample["lidar_bev_2Dimage"][-1], 'image/lidar_image_{}.png'.format(batch_ndx))
         print("pointcloud_raw shape is ", sample["pointcloud_raw"].shape)
         print("num points is ", sample["num_points_raw"])
         print("projected_loc_uv shape is ", sample["projected_loc_uv"].shape)
