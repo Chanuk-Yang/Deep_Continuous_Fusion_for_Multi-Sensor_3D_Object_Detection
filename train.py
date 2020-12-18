@@ -20,7 +20,7 @@ class Train(nn.Module):
         super().__init__()
         self.loss_total = LossTotal()
         self.model = ObjectDetection_DCF().cuda()
-        self.model = DDP(self.model,device_ids=[0,1,2,3], output_device=0, find_unused_parameters=True)
+        self.model = DDP(self.model,device_ids=[0,1], output_device=0, find_unused_parameters=True)
         self.loss_value = None
         lr = 0.0001
         beta1 = 0.9
@@ -28,14 +28,14 @@ class Train(nn.Module):
 
     def one_step(self, lidar_voxel, camera_image, object_data, num_ref_box):
         pred_cls, pred_reg, pred_bbox_f = self.model(lidar_voxel, camera_image)
-        self.loss_value = self.loss_total(object_data, num_ref_box, pred_cls, pred_reg)
+        self.loss_value = self.loss_total(object_data, num_ref_box, pred_cls, pred_reg, pred_bbox_f)
         self.optimizer.zero_grad()
         self.loss_value.backward()
         self.optimizer.step()
 
     def get_loss_value(self, lidar_image, camera_image, object_data, num_ref_box):
         pred_cls, pred_reg, pred_bbox_f = self.model(lidar_image, camera_image)
-        self.loss_value = self.loss_total(object_data, num_ref_box, pred_cls, pred_reg)
+        self.loss_value = self.loss_total(object_data, num_ref_box, pred_cls, pred_reg, pred_bbox_f)
         return self.loss_value.item(), pred_cls, pred_reg
 
 
@@ -48,9 +48,9 @@ if __name__ == '__main__':
     cuda_vis_dev_num = args.cuda
 
     # os.environ['CUDA_VISIBLE_DEVICES'] = str(cuda_vis_dev_num)
-    os.environ['CUDA_VISIBLE_DEVICES'] = '1,3,4,5'
+    os.environ['CUDA_VISIBLE_DEVICES'] = '2,6'
     os.environ['MASTER_ADDR'] = 'localhost'
-    os.environ['MASTER_PORT'] = '12355'
+    os.environ['MASTER_PORT'] = '12232'
     torch.distributed.init_process_group(backend='nccl', world_size=1, rank=0)
     if dataset_category == "carla":
         dataset = CarlaDataset()
@@ -64,10 +64,10 @@ if __name__ == '__main__':
     train_sampler = torch.utils.data.distributed.DistributedSampler(dataset, shuffle=True)
     train_sampler_test = torch.utils.data.distributed.DistributedSampler(dataset_test, shuffle=True)
     data_loader = torch.utils.data.DataLoader(dataset,
-                                          batch_size=8,
+                                          batch_size=4,
                                           sampler=train_sampler)
     data_loader_test = torch.utils.data.DataLoader(dataset_test,
-                                          batch_size=8,
+                                          batch_size=4,
                                           sampler=train_sampler_test)
     num_epochs = 60
     training = Train()
@@ -96,7 +96,7 @@ if __name__ == '__main__':
                     reference_bboxes_ = sample_['bboxes'].cpu().clone().detach()
                     num_ref_bboxes_ = sample_["num_bboxes"]
                     bev_image_ = sample_["lidar_bev_2Dimage"]
-                    test.get_eval_value_onestep(point_voxel_, image_data_, reference_bboxes_)
+                    test.get_eval_value_onestep(point_voxel_, image_data_, reference_bboxes_, num_ref_bboxes_)
                     test.save_feature_result(bev_image_, reference_bboxes_, num_ref_bboxes_, batch_ndx_, epoch)
                     if batch_ndx_ > 5:
                         print("accumulated number of true data is ", test.get_num_T())
@@ -112,7 +112,7 @@ if __name__ == '__main__':
             reference_bboxes = sample['bboxes'].cpu().clone().detach()
             num_ref_bboxes = sample["num_bboxes"]
             bev_image = sample["lidar_bev_2Dimage"]
-            test.get_eval_value_onestep(point_voxel, image_data, reference_bboxes)
+            test.get_eval_value_onestep(point_voxel, image_data, reference_bboxes, num_ref_bboxes)
             test.save_feature_result(bev_image, reference_bboxes, num_ref_bboxes, batch_ndx, epoch)
             if batch_ndx > 10:
                 print("accumulated number of true data is ", test.get_num_T())
