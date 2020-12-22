@@ -1,3 +1,4 @@
+import numpy as np
 from numpy import random
 from numpy.core.fromnumeric import argmax
 
@@ -8,7 +9,11 @@ from torchvision.utils import save_image
 from torch.nn.parallel import DistributedDataParallel as DDP
 
 import os
-import numpy as np
+import argparse
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+import time
 
 from data_import_carla import CarlaDataset
 from loss import LossTotal
@@ -17,10 +22,7 @@ from data_import import putBoundingBox
 from IOU import get_3d_box, box3d_iou
 from separation_axis_theorem import get_vertice_rect, separating_axis_theorem
 
-import matplotlib
-matplotlib.use('Agg')
-import matplotlib.pyplot as plt
-import time
+
 
 
 class Test:
@@ -250,9 +252,22 @@ class Test:
 
 
 if __name__ == '__main__':
-    os.environ['CUDA_VISIBLE_DEVICES'] = '2'
+    parser = argparse.ArgumentParser(description='deep continuous fusion training')
+    parser.add_argument('--data', type=str, default="carla", help='Data type, choose "carla" or "kitti"')
+    parser.add_argument('--cuda', type=str, default="0", help="list of cuda visible device number. you can choose 0~7 in list. [EX] --cuda 0,3,4")
+    parser.add_argument('--port', type=str, default='12233', help="master port number. defaut is 12233")
+    args = parser.parse_args()
+    dataset_category = args.data
+    cuda_vis_dev_str = args.cuda
+    master_port = args.port
+    print(cuda_vis_dev_str)
+    device_id_source = cuda_vis_dev_str.split(",")
+    device_id = [i for i in range(len(device_id_source))]
+    os.environ['CUDA_VISIBLE_DEVICES'] = cuda_vis_dev_str
     os.environ['MASTER_ADDR'] = 'localhost'
-    os.environ['MASTER_PORT'] = '12354'
+    os.environ['MASTER_PORT'] = master_port
+
+
     torch.distributed.init_process_group(backend='nccl', world_size=1, rank=0)
     # Focus on test dataset
     dataset = CarlaDataset(mode="test",want_bev_image=True)
@@ -262,7 +277,7 @@ if __name__ == '__main__':
                                           shuffle=True)
     # Load pre-trained model. you can use the model during training instead of test_model 
     test_model = ObjectDetection_DCF().cuda()
-    test_model = DDP(test_model,device_ids=[0], output_device=0, find_unused_parameters=True)
+    test_model = DDP(test_model,device_ids=device_id, output_device=0, find_unused_parameters=True)
     test_model.load_state_dict(torch.load("./saved_model/model"))
     test = Test(test_model)
     data_length = len(dataset)

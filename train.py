@@ -16,11 +16,11 @@ from data_import import putBoundingBox
 from test import Test
 
 class Train(nn.Module):
-    def __init__(self):
+    def __init__(self, device_id):
         super().__init__()
         self.loss_total = LossTotal()
         self.model = ObjectDetection_DCF().cuda()
-        self.model = DDP(self.model,device_ids=[0,1], output_device=0, find_unused_parameters=True)
+        self.model = DDP(self.model,device_ids=device_id, output_device=0, find_unused_parameters=True)
         self.loss_value = None
         lr = 0.0001
         beta1 = 0.9
@@ -40,17 +40,21 @@ class Train(nn.Module):
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='deep continuous fusion training is doing')
-    parser.add_argument('--data', type=str, default="carla", help='Data type, choose [carla] or [kitti]')
-    parser.add_argument('--cuda', type=list, default=0, help="list of cuda visible device number. you can choose 0~7")
+    parser = argparse.ArgumentParser(description='deep continuous fusion training')
+    parser.add_argument('--data', type=str, default="carla", help='Data type, choose "carla" or "kitti"')
+    parser.add_argument('--cuda', type=str, default="0", help="list of cuda visible device number. you can choose 0~7 in list. [EX] --cuda 0,3,4")
+    parser.add_argument('--port', type=str, default='12233', help="master port number. defaut is 12233")
     args = parser.parse_args()
     dataset_category = args.data
-    cuda_vis_dev_num = args.cuda
-
-    # os.environ['CUDA_VISIBLE_DEVICES'] = str(cuda_vis_dev_num)
-    os.environ['CUDA_VISIBLE_DEVICES'] = '4,5'
+    cuda_vis_dev_str = args.cuda
+    master_port = args.port
+    print(cuda_vis_dev_str)
+    device_id_source = cuda_vis_dev_str.split(",")
+    device_id = [i for i in range(len(device_id_source))]
+    print(device_id)
+    os.environ['CUDA_VISIBLE_DEVICES'] = cuda_vis_dev_str
     os.environ['MASTER_ADDR'] = 'localhost'
-    os.environ['MASTER_PORT'] = '12233'
+    os.environ['MASTER_PORT'] = master_port
     torch.distributed.init_process_group(backend='nccl', world_size=1, rank=0)
     if dataset_category == "carla":
         dataset = CarlaDataset()
@@ -70,7 +74,7 @@ if __name__ == '__main__':
                                           batch_size=4,
                                           sampler=train_sampler_test)
     num_epochs = 60
-    training = Train()
+    training = Train(device_id)
     test = Test(training.model)
     data_length = len(data_loader)
     for epoch in range(num_epochs):
@@ -103,7 +107,7 @@ if __name__ == '__main__':
                         print("accumulated number of positive data is ", test.get_num_P())
                         print("accumulated number of true positive data is ", test.get_num_TP_set())
                         break
-                test.display_average_precision(plot_AP_graph=True)
+                test.display_average_precision(plot_AP_graph=False)
                 print("="*50)
                 test.initialize_ap()
         for batch_ndx, sample in enumerate(data_loader_test):
@@ -120,7 +124,7 @@ if __name__ == '__main__':
                 print("accumulated number of true positive data is ", test.get_num_TP_set())
                 print("="*50)
                 break
-        test.display_average_precision(plot_AP_graph=True)
+        test.display_average_precision(plot_AP_graph=False)
         print("="*50)
         test.initialize_ap()
         
