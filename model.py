@@ -112,14 +112,17 @@ class OffsettoBbox(nn.Module):
         x: x_reg [b,num_anc*7,wid,hei]
         """
         anc_set = self.anchor_bbox_feature().cuda()
-        pred_xyz_1 = x[:,:3,:,:] * (anc_set[:,3:6,:,:]) + anc_set[:,:3,:,:]
+        pred_xy_1 = x[:,:2,:,:] * torch.sqrt(torch.pow(anc_set[:,3:4,:,:],2) + torch.pow(anc_set[:,4:5,:,:],2)) + anc_set[:,:2,:,:]
+        pred_z_1 = x[:,2:3,:,:] * (anc_set[:,5:6,:,:]) + anc_set[:,2:3,:,:]
+
         pred_whl_1 = torch.exp(x[:,3:6,:,:]) * anc_set[:,3:6,:,:]
-        pred_ori_1 = x[:,6:7,:,:] + anc_set[:,6:7,:,:]
-        pred_xyz_2 = x[:,7:10,:,:] * anc_set[:,10:13,:,:] + anc_set[:,7:10,:,:]
+        pred_ori_1 = torch.atan2(torch.sin(x[:,6:7,:,:] + anc_set[:,6:7,:,:]), torch.cos(x[:,6:7,:,:] + anc_set[:,6:7,:,:]))
+        pred_xy_2 = x[:,7:9,:,:] * torch.sqrt(torch.pow(anc_set[:,10:11,:,:],2) + torch.pow(anc_set[:,11:12,:,:],2)) + anc_set[:,7:9,:,:]
+        pred_z_2 = x[:,9:10,:,:] * (anc_set[:,12:13,:,:]) + anc_set[:,9:10,:,:]
         pred_whl_2 = torch.exp(x[:,10:13,:,:]) * anc_set[:,10:13,:,:]
-        pred_ori_2 = x[:,13:14,:,:] + anc_set[:,13:14,:,:]
-        pred_bbox_feature = torch.cat((pred_xyz_1, pred_whl_1, pred_ori_1,
-                                      pred_xyz_2, pred_whl_2, pred_ori_2), dim=1)
+        pred_ori_2 = torch.atan2(torch.sin(x[:,13:14,:,:] + anc_set[:,13:14,:,:]), torch.cos(x[:,13:14,:,:] + anc_set[:,13:14,:,:]))
+        pred_bbox_feature = torch.cat((pred_xy_1, pred_z_1, pred_whl_1, pred_ori_1,
+                                      pred_xy_2, pred_z_2, pred_whl_2, pred_ori_2), dim=1)
         return pred_bbox_feature
         
 
