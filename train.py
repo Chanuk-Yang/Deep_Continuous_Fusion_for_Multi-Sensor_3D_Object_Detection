@@ -48,9 +48,9 @@ if __name__ == '__main__':
     cuda_vis_dev_num = args.cuda
 
     # os.environ['CUDA_VISIBLE_DEVICES'] = str(cuda_vis_dev_num)
-    os.environ['CUDA_VISIBLE_DEVICES'] = '2,6'
+    os.environ['CUDA_VISIBLE_DEVICES'] = '4,5'
     os.environ['MASTER_ADDR'] = 'localhost'
-    os.environ['MASTER_PORT'] = '12232'
+    os.environ['MASTER_PORT'] = '12233'
     torch.distributed.init_process_group(backend='nccl', world_size=1, rank=0)
     if dataset_category == "carla":
         dataset = CarlaDataset()

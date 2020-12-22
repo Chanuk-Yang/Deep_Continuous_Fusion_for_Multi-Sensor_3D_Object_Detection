@@ -53,25 +53,25 @@ class Test:
     def get_num_TP_set(self):
         return self.num_TP_set
 
-    def save_feature_result(self, bev_image, ref_bboxes, num_ref_bboxes, i, epoch):
+    def save_feature_result(self,bev_image, ref_bboxes, num_ref_bboxes, i, epoch, dir="./result"):
         B = ref_bboxes.shape[0]
         file_list = os.listdir("./")
         if not "result" in file_list:
-            os.mkdir("./result")
-        file_list = os.listdir("./result")
+            os.mkdir(dir)
+        file_list = os.listdir(dir)
         if not "epoch_{}".format(epoch) in file_list:
-            os.mkdir("./result/epoch_{}".format(epoch))
+            os.mkdir(dir+"/epoch_{}".format(epoch))
         ref_bboxes = ref_bboxes.cpu().clone().numpy()
         num_ref_bboxes = num_ref_bboxes.cpu().clone().numpy()
         for b in range(B):
-            save_image(self.pred_cls[b, 1, :, :], 'result/epoch_{}/{}_in_{}_positive_image.png'.format(epoch,i,b ))
-            save_image(self.pred_cls[b, 0, :, :], 'result/epoch_{}/{}_in_{}_negative_image.png'.format(epoch,i,b))
+            save_image(self.pred_cls[b, 1, :, :], dir+"/epoch_{}/{}_in_{}_positive_image.png".format(epoch,i,b ))
+            save_image(self.pred_cls[b, 0, :, :], dir+"/epoch_{}/{}_in_{}_negative_image.png".format(epoch,i,b))
             bev_image_ = 0.5*bev_image[b].permute(1,2,0)
             bev_image_with_bbox = putBoundingBox(bev_image_, self.refined_bbox[b], color="green").permute(2,0,1).type(torch.float)
-            save_image(bev_image_with_bbox, 'result/epoch_{}/{}_in_{}_bev_image_with_predbbox.png'.format(epoch,i,b))
+            save_image(bev_image_with_bbox, dir+"/epoch_{}/{}_in_{}_bev_image_with_predbbox.png".format(epoch,i,b))
             
             bev_image_with_bbox = putBoundingBox(bev_image_, ref_bboxes[b,:num_ref_bboxes[b]], color="red").permute(2,0,1).type(torch.float)
-            save_image(bev_image_with_bbox, 'result/epoch_{}/{}_in_{}_bev_image_with_refbbox.png'.format(epoch,i,b))
+            save_image(bev_image_with_bbox, dir+"/epoch_{}/{}_in_{}_bev_image_with_refbbox.png".format(epoch,i,b))
 
     def get_eval_value_onestep(self, lidar_image, camera_image, ref_bboxes, num_ref_bboxes):
         
@@ -213,8 +213,8 @@ class Test:
         for iou_threshold in self.IOU_threshold:
             total_precision[iou_threshold] = self.num_TP_set[iou_threshold] / (self.num_P + 0.00001)
             total_recall[iou_threshold] = self.num_TP_set[iou_threshold] / (self.num_T + 0.00001)
-        print("Total Precision: ", total_precision)
-        print("Total Recall: ", total_recall)
+        # print("Total Precision: ", total_precision)
+        # print("Total Recall: ", total_recall)
         precisions = {}
         recalls = {}
         num_P = 0

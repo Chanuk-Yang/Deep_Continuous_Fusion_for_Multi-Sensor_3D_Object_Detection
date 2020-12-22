@@ -52,7 +52,7 @@ class CarlaDataset(Dataset):
                 data = self.hdf5_files[file_name]
                 id = self.hdf5_id_dict[file_name][idx_for_scenario].strip()
                 object_datas, lidar_data, image_data = self.getOneStepData(data, id)
-                image_data = torch.tensor(image_data).permute(2, 0, 1).type(torch.float)
+                image_data = torch.tensor(image_data).permute(2, 0, 1)
                 reference_bboxes, num_reference_bboxes = self.arangeLabelData(object_datas)
                 voxelized_lidar, point_cloud_raw, uv, num_points_raw, indices_for_bev = self.Voxelization_Projection(lidar_data)
                 if (self.want_bev_image):
@@ -142,7 +142,7 @@ class CarlaDataset(Dataset):
             if not self.valid_bbox(object_data):
                 continue
             object_class = object_data[9]
-            if object_class == 6 or object_class == 7 or object_class == 9:
+            if object_class == 6:
                 rel_x = object_data[0]
                 rel_y = object_data[1]
                 rel_z = object_data[2]
@@ -260,7 +260,7 @@ class CarlaDataset(Dataset):
         return lidar_image
 
 if __name__ == "__main__":
-    os.environ['CUDA_VISIBLE_DEVICES'] = '2'
+    os.environ['CUDA_VISIBLE_DEVICES'] = '4'
     dataset = CarlaDataset(mode="test", want_bev_image=True)
     data_loader = torch.utils.data.DataLoader(dataset,
                                           batch_size=2,
@@ -277,7 +277,12 @@ if __name__ == "__main__":
         print("pointcloud shape is ", sample["pointcloud"].shape)
         print("voxel type is ", sample["pointcloud"].type())
         print("bev image shape: ", sample["lidar_bev_2Dimage"].shape)
-        save_image(sample["lidar_bev_2Dimage"][-1], 'image/lidar_image_{}.png'.format(batch_ndx))
+        bev_image_ = 0.5*sample["lidar_bev_2Dimage"][-1].permute(1,2,0)
+        bev_image_with_bbox = putBoundingBox(bev_image_, sample["bboxes"][-1,:sample["num_bboxes"][-1]], color="red").permute(2,0,1).type(torch.float)
+        save_image(bev_image_with_bbox, 'image/lidar_image_{}.png'.format(batch_ndx))
+        # print(sample["image"][-1].dtype)
+        save_image(torch.cat((sample["image"][-1][2:3],sample["image"][-1][1:2],sample["image"][-1][0:1]) ,dim=0).type(torch.float)/256,'image/RGB_image_{}.png'.format(batch_ndx) )
+        print("image max, min value is ",torch.max(sample["image"][-1]), torch.min(sample["image"][-1]))
         print("pointcloud_raw shape is ", sample["pointcloud_raw"].shape)
         print("num points is ", sample["num_points_raw"])
         print("projected_loc_uv shape is ", sample["projected_loc_uv"].shape)
