@@ -41,10 +41,10 @@ def getPositionOfPositive(anchor_bbox_feature, ref_bboxes, regress_type, sample_
         point_y = int((ref_bbox[1]*10 + 350)/4)  #(0 ~ 700/4)
         if point_x < 0 or point_x > H - 1 or point_y < 0 or point_y > W - 1:
             continue
-        for x_int in range(5):
-            pos_x = point_x - 2 + x_int
-            for y_int in range(5):
-                pos_y = point_y - 2 + y_int
+        for x_int in range(3):
+            pos_x = point_x - 1 + x_int
+            for y_int in range(3):
+                pos_y = point_y - 1 + y_int
                 if pos_x < 0 or pos_x > H - 1 or pos_y < 0 or pos_y > W - 1:
                     continue
                 positive_position_list.append([pos_x, pos_y])
@@ -53,7 +53,7 @@ def getPositionOfPositive(anchor_bbox_feature, ref_bboxes, regress_type, sample_
                     positive_position_idx[i].append(temp_cnt)
                     temp_cnt+=1
                 else:
-                    if x_int==2 and y_int==2:
+                    if x_int==1 and y_int==1:
                         positive_position_regress.append([pos_x, pos_y]) #중심만 추가하기
                         positive_position_idx[i].append(temp_cnt)
                         temp_cnt+=1
@@ -114,22 +114,16 @@ def LossReg(ref_box, pred_box, a_box):
     N, num_anchor, char = a_box.shape
     ref_box = ref_box.unsqueeze(0).unsqueeze(0).repeat(N,num_anchor,1)
     pred_box = pred_box.reshape(N,num_anchor,char)
-    xyz_ref_offset = (ref_box[:,:,:3]-a_box[:,:,:3])/(a_box[:,:,3:6])
+    xy_ref_offset = (ref_box[:,:,:2]-a_box[:,:,:2])/torch.sqrt(torch.pow(a_box[:,:,3:4],2) + torch.pow(a_box[:,:,4:5],2))
+    z_ref_offset = (ref_box[:,:,2:3]-a_box[:,:,2:3])/(a_box[:,:,5:6])
     whd_ref_offset = torch.log(ref_box[:,:,3:6]/(a_box[:,:,3:6]))
-    ori_ref_offset = ref_box[:,:,6] - a_box[:,:,-1]
-    ref_offset = torch.cat([xyz_ref_offset, whd_ref_offset, ori_ref_offset.unsqueeze(-1)], dim=-1)
+    ori_ref_offset = torch.atan2(torch.sin(ref_box[:,:,6] - a_box[:,:,-1]), torch.cos(ref_box[:,:,6] - a_box[:,:,-1]))
+    ref_offset = torch.cat([xy_ref_offset, z_ref_offset, whd_ref_offset, ori_ref_offset.unsqueeze(-1)], dim=-1)  #[N,2,7]
 
-    l1_loss = F.smooth_l1_loss(pred_box, ref_offset, reduce=False)
-    # print(l1_loss[:,0,:])
-    # xyz_error = pred_box[:,:,:3] - xyz_ref_offset
-    # whd_error = pred_box[:,:,3:6] - whd_ref_offset
-    # ori_error = pred_box[:,:,-1] - ori_ref_offset
-    # total_error = torch.cat([xyz_error, whd_error,ori_error.unsqueeze(-1)], dim=-1) #[N,2,7]
-    # l1_loss = F.smooth_l1_loss(total_error, torch.zeros_like(total_error).cuda()) #[N,2,7]
-    
+    l1_loss = F.smooth_l1_loss(pred_box[:,:,:char], ref_offset, reduce=False)
+   
     loss = 1.0/(N*num_anchor*char) * torch.sum(l1_loss)
-    # if loss.item() > 0.2:
-    #     print("l1loss: ",l1_loss)
+
     return loss
 
 
@@ -163,14 +157,6 @@ def getRegSum(index, positive_position_list, reference_bboxes, predicted_regress
         bbox_real = torch.stack(bbox_real_list, dim=0).reshape(N,num_anchor,char)
         
         loss = LossReg(reference_box, predicted_box, anchor_box).cpu()
-        # if loss.item() > 0.2:
-        #     N, num_anchor, char = anchor_box.shape
-        #     reference_box_ = reference_box[:7].unsqueeze(0).unsqueeze(0).repeat(N,num_anchor,1)
-        #     difference = bbox_real-reference_box_.cpu()
-        #     print ("bbox_real_list: ", bbox_real)
-        #     print ("difference: ", difference)
-        #     print ("ref_bbox: ", reference_box)
-        #     print ("loss: ", loss)
         reg_loss +=loss
 
 
@@ -244,7 +230,7 @@ class LossTotal(nn.Module):
             1. make regression loss
             2. omit the reference object when the points are few in bounding box (or...)
             """
-            total_loss += total_loss_class + 10 * Reg_loss
+            total_loss += total_loss_class + 3 * Reg_loss
 
         return total_loss
 if __name__ == '__main__':
