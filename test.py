@@ -270,7 +270,12 @@ if __name__ == '__main__':
 
     torch.distributed.init_process_group(backend='nccl', world_size=1, rank=0)
     # Focus on test dataset
-    dataset = CarlaDataset(mode="test",want_bev_image=True)
+    if dataset_category == "carla":
+        dataset = CarlaDataset(mode="test",want_bev_image=True)
+        print("carla dataset is used for training")
+    elif dataset_category =="kitti":
+        dataset = KittiDataset(mode="test")
+        print("kitti dataset is used for training")
     print("dataset is ready")
     data_loader = torch.utils.data.DataLoader(dataset,
                                           batch_size=2,
