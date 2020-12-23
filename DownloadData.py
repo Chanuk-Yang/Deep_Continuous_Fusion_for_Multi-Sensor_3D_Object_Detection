@@ -23,6 +23,7 @@ def downloadKITTI():
             with zipfile.ZipFile(folder + '/' + file_name, 'r') as tf:
                 tf.extractall(folder + '/')
                 tf.close()
+                
 
 
 def downloadKIITILabel():
