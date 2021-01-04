@@ -14,45 +14,39 @@ class KITTIDataset(Dataset):
 
     def __init__(
         self, 
-        vSize=[36, 700, 700], 
-        kMode=True, 
-        tMode=True, 
+        mode="train",
+        want_bev_image=True,
         baselinePath='./'
     ):
         """
-        args:
-            vSize:
-                the shape of voxelized lidar point
-                dtype: list [channel, hei, wid], int64
-                default: [36, 700, 700]
-            
-            kMode:
-                kitti dataset mode.
-                dtype: bool
-                default: True
-            
-            tMode:
-                trainging Mode
-                dttype: bool
-                default: True
-            
-            baselinePath:
-                the parent path of kitti dataset
-                dtype: string
-                default: './'
+        Explain
+            This dataset supports for KITTI Dataset.
+            You can easily download these KITTI Dataset by using
+            "python DownloadData.py"
+
+        Arguments
+            mode:[str], check train or test mode, defalut:"train"
+            want_bev_image:[bool], check Bird Eye view mode, default:True
+            baselinePath:[str], set the baselinePath for KITTI dataset folder, default:"./
         """
         super(KITTIDataset, self).__init__()
-        self.vSize = vSize
-        self.voxelThresh = [1/(i+1) for i in range(vSize[0])]
-        self.voxelThresh = self.voxelThresh[::-1]
+        self.want_bev_image = want_bev_image
+
+        # set the shape of voxelization such as [Channle, Height, Width]
+        self.vSize = [32, 700, 700]
+
+        # define the Path for image, lidar point and label.
         self.iPath = os.path.join(baselinePath, 'KITTI')
         self.vPath = os.path.join(baselinePath, 'KITTI')
+        tMode = mode == "train"
         if tMode:
+            print("Dataset mode is Training!!")
             temp = "training"
             self.lPath = os.path.join(baselinePath, 'KITTILabel', 'training', 'label_2')            
             self.lPathList = os.listdir(self.lPath)
             self.lPathList.sort()
         else:
+            print("Dataset mode is Testing")
             temp = "testing"
             
         self.iPath = os.path.join(self.iPath, temp, "image_2")
@@ -63,13 +57,22 @@ class KITTIDataset(Dataset):
         self.vPathList = os.listdir(self.vPath)
         self.vPathList.sort()
 
+        # set the category for label data.
         self.category = ['Car', 'Van', 'Truck', 'Pedestrian', "Person",
                          'Cyclist', 'Tram', 'Misc']
                          
+        # set the mask for filttering the KITTI label data.
         mask = [0, 8, 9, 10, 11, 12, 13, 14]
         self.mask = [False for i in range(15)]
         for m in mask:
             self.mask[m] = True
+
+        # set the parameter for Range
+        self.Range = 70
+        self.MINZ = -2.4
+        self.MAXZ = 0.8
+        self.f = self.vSize[-1]/(2 * self.Range)
+        self.Delta = (self.MAXZ - self.MINZ) / self.vSize[0]
     
     def __len__(self):
         if len(self.iPathList) == len(self.vPathList):
@@ -80,22 +83,33 @@ class KITTIDataset(Dataset):
     
     def parsingLabel(self, lPath):
         """
-        parsing label.
-
-        explain:
-            the coordinate of label is image_02 camera's own.
-            label has the 8dim, corresponding to cat, h, w, length, x, y, z, rotation_y.
-            Finally, preprocess the label to the voxelizaed format.
-
-        output:
-            dtype: tensor.float32 // device:[cpu]
-            shape: [idx, 8]
+        Explain
+            the description for raw label data
+                idx,    name,           Description
+                0      type,           "car" or "van", etc..
+                1      truncated,  
+                2      occluded,       indicating occlusion state. 0 = fully visible, 3 = unkown
+                3      alpha           observation angle of object, raning [-pi .. pi]
+               4-7     boundingbox     2D bounding box for object in the image
+                                       left, top, right, bottom pixel coordinates.
+               8-10    dimensions      3D object dimensions: height, width, length (in meters)
+               11-13   location        3D object location x, y, z in camera coordinates
+                14     rotation_y      Rotation ry around Y-axis in camera coordinates
+                15     score           only for results: indciation confidence in detection, higher is better.
+            we use type, dimensions, location, rotation_y
+                 
         """
-        RANGE = 80
-        MINZ = 0
-        MAXZ = 20
-
+        RANGE = 70
+        MINZ = -2.4
+        MAXZ = 0.8
+        f = self.vSize[-1] / (2*RANGE)
         Delta = (MAXZ - MINZ) / self.vSize[0]
+        mask = [0, 8, 9, 10, 11, 12, 13, 14]
+        self.mask = [False for i in range(15)]
+        for m in mask:
+            self.mask[m] = True
+
+        # load the label for label file.
         opener = open(lPath, "r")
         rawLabel = opener.readlines()
         Label = []
@@ -105,19 +119,29 @@ class KITTIDataset(Dataset):
             if line[0] == 'DontCare':
                 continue
             line[0] = self.category.index(line[0])
+            # mask
             line = line[self.mask]
             parsedLine = np.array(line, dtype=np.float32)
             Label.append(parsedLine)
-        f = self.vSize[-1] / (2*RANGE)
-        R = np.array([[0, 0, f*2], [f, 0, 0], [0, 1, 0,]])
-        R1 = np.array([[1, 0, 0], [0, f * 2, 0], [0, 0, f]])
-        Label = np.array(Label)
-        HWL_BoundingBox = Label[:, 1:4].dot(R1)
-        Location_BoundingBox = np.transpose(R.dot(np.transpose(Label[:, 4:-1]))) + np.array([0, RANGE * f, 3])
-        Label[:, 4:-1] = np.clip(Location_BoundingBox, -1000, 699)
-        Label[:, 1:4] = HWL_BoundingBox
-        Label = torch.tensor(Label).float().cpu()
         opener.close()
+
+        # permuting from Camera02 to Image
+        R = np.array([[0, 0, 1], [1, 0, 0], [0, 1, 0,]])
+
+        Label = np.array(Label)
+        LWH_BoundingBox = Label[:, 1:4]
+        LWH_BoundingBox = LWH_BoundingBox[:, ::-1]
+        Location_BoundingBox = np.transpose(R.dot(np.transpose(Label[:, 4:-1])))
+        orientation = Label[:, -1:]
+        objectClass = Label[:, 0:1]
+        ones = np.ones((len(objectClass), 1))
+        Label[:, :3] = Location_BoundingBox
+        Label[:, 3:6] = LWH_BoundingBox
+        Label[:, 6:7] = orientation
+        Label[:, 7:8] = objectClass
+        Label[:, 8:9] = ones
+        Label = torch.tensor(Label).float().cpu()
+        
         return Label
     
     def showBoundingBox(self, pillowImage, Label):
@@ -143,7 +167,7 @@ class KITTIDataset(Dataset):
         
         pillowImage.show()
 
-    def voxelizingLidarPt(self, vPath, Label):
+    def voxelizingLidarPt(self, vPath, Label, imgSize):
         """
         voxelize the label.
 
@@ -160,20 +184,42 @@ class KITTIDataset(Dataset):
                 dtype: torch.float32, tensor
                 shape: [channel, hei, wid]
         """
-        # load/calbrate the lidar point
-        # lidarPt = np.fromfile(vPath, dtype=np.float32).reshape((-1, 4))
-        RANGE = 80
-        MINZ = 0
-        MAXZ = 20
+        # set the specification for Lidar Point.
+        RANGE = 70
+        MINZ = -2.4
+        MAXZ = 0.8
+        C, H, W = imgSize
         Delta = (MAXZ - MINZ) / self.vSize[0]
-
-        lidarPt = np.fromfile(vPath, dtype=np.float32).reshape((-1, 4))
-        lidarPt = np.transpose(lidarPt)
-        lidarPt = np.clip(lidarPt, -RANGE+1, RANGE-1)
-        R = np.load('./KITTI/calib.npy')
         f = self.vSize[-1] / (2*RANGE)
+ 
+        lidarPt = np.fromfile(vPath, dtype=np.float32).reshape((-1, 4)) # [Num, Points]
+        lidarPt = np.transpose(lidarPt)  # [Points, Num]
+        lidarPt = np.clip(lidarPt, -RANGE+1, RANGE-1)
+
+        # calibration matrix from Velodyne point to Camera02
+        R = np.load('./KITTI/calib.npy') 
+
+        # calibration scaled-matrix from Camera02  to Image.
         R1 = np.array([[0, 0, f*2, 0], [f, 0, 0, 0], [0, 1, 0, 0]])
-        lidarPt = np.transpose(R1.dot(R.dot(lidarPt))) + np.array([0, RANGE * f, 3])
+
+        # Offset for transfering Image coord to tensor coordinator.
+        Offset = np.array([0, RANGE * f, 3])
+
+        uv = R1.dot(R.dot(lidarPt))
+        imagePt = np.transpose(uv)
+
+        uv = torch.tensor(uv[:2]).float()
+        uv = torch.where(uv[0] > torch.tensor(0).float(), uv, torch.tensor(0.0).float())
+        uv = torch.where(uv[0, :] < W, uv, torch.tensor(0).float())
+        uv = torch.where(uv[1, :] > 0, uv, torch.tensor(0).float())
+        uv = torch.where(uv[1, :] < H, uv, torch.tensor(0).float())
+        uv = uv.unique(dim=1)
+        indices = torch.nonzero(uv)
+        indices = indices[:int(indices.shape[0]/2), 1]
+        filter_points_raw = imagePt[indices]
+        num_point_cloud_raw = filter_points_raw.shape[0]
+        lidarPt = imagePt + Offset
+
         index = lidarPt[:, 0] > 0
         lidarPt = lidarPt[index]
         z = np.clip(lidarPt[:, 2], MINZ, MAXZ)
@@ -189,7 +235,6 @@ class KITTIDataset(Dataset):
             pt = lidarPt[index]
             floorPt = torch.floor(pt)
             indexbev = floorPt[:, 1] * self.vSize[1] + floorPt[:, 0]
-            # indexbev = torch.clamp_max(indexbev, self.vSize[-1]**2-1)
             ivoxel = i * size + indexbev
             ivoxel = index.long()
             indexbev = indexbev.long()
@@ -203,14 +248,16 @@ class KITTIDataset(Dataset):
 
         voxelImg = voxelImg.view((self.vSize))
         bevImg = bevImg.view((1, self.vSize[1], self.vSize[1]))
-        labelImg = labelImg.view((1, self.vSize[1], self.vSize[1]))
-        tempImg = torch.zeros((3, self.vSize[1], self.vSize[2]))
-        tempImg[0:1, :, :] = bevImg
-        tempImg[1:2, : ,:] = labelImg
-        k = TF.to_pil_image(tempImg.float())
-        self.showBoundingBox(k, Label)
-
-        return voxelImg
+        # labelImg = labelImg.view((1, self.vSize[1], self.vSize[1]))
+        # tempImg = torch.zeros((3, self.vSize[1], self.vSize[2]))
+        # tempImg[0:1, :, :] = bevImg
+        # tempImg[1:2, : ,:] = labelImg
+        # k = TF.to_pil_image(tempImg.float())
+        # self.showBoundingBox(k, Label)
+        if self.want_bev_image:
+            return voxelImg, lidarPt, uv, num_point_cloud_raw, bevImg
+        else:
+            return voxelImg, lidarPt, uv, num_point_cloud_raw
 
     def loadingImage(self, iPath):
         """
@@ -229,13 +276,15 @@ class KITTIDataset(Dataset):
 
         img = Image.open(iPath)
         img = TF.to_tensor(img)
+        C, H, W = img.shape
 
-        return img
+        return img, (C, H, W)
 
     def __getitem__(self, idx):
         # configure the path of image
         iPath = self.iPathList[idx]
         iPath = os.path.join(self.iPath, iPath)
+        image, iSize = self.loadingImage(iPath)
 
         # configure the path of velodyne point
         vPath = self.vPathList[idx]
@@ -249,25 +298,31 @@ class KITTIDataset(Dataset):
         Label = self.parsingLabel(lPath)
 
         # voxelize the label.
-        x = time.time()
-        voxelImg = self.voxelizingLidarPt(vPath, Label)
-        print(time.time() - x)
-        # # load the image
-        # img = self.loadingImage(iPath)
-        
-        # output = {}
-        # output['img'] = img
-        # output['voxelImg'] = voxelImg
-        # output['label'] = Label
-        # output['bevImg'] = bevImg
-        # showLidarBoundingBox(output)
-
-        # return output
+        if self.want_bev_image:
+            voxelImg, lidarPt, uv, num_point_raw, bevImg = self.voxelizingLidarPt(vPath, Label, iSize)
+            return {
+                'image':image,
+                'num_bboxes': len(Label),
+                'pointcloud':voxelImg,
+                "pointcloud_raw":lidarPt,
+                "projected_loc_uv": uv,
+                "num_points_raw":num_point_raw,
+                "lidar_bev_2Dimage": bevImg
+            }
+        else:
+            voxelImg, lidarPt, uv, num_point_raw = self.voxelizingLidarPt(vPath, Label, iSize)
+            return {
+                'image':image,
+                'num_bboxes': len(Label),
+                'pointcloud':voxelImg,
+                "pointcloud_raw":lidarPt,
+                "projected_loc_uv": uv,
+                "num_points_raw":num_point_raw
+            }
 
 
 if __name__ == "__main__":
     path = '/Volumes/GoogleDrive/내 드라이브/Dataset'
     datatset = KITTIDataset(baselinePath=path)
-    print(len(datatset))
-    datatset[83]
+    print(datatset[83])
 
