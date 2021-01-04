@@ -15,7 +15,7 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import time
 
-from data_import_carla import CarlaDataset
+# from data_import_carla import CarlaDataset
 from loss import LossTotal
 from model import LidarBackboneNetwork, ObjectDetection_DCF
 from data_import import putBoundingBox

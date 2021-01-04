@@ -8,12 +8,13 @@ import os
 import numpy as np
 import argparse
 
-from data_import_carla import CarlaDataset
+# from data_import_carla import CarlaDataset
 # from kitti import KittiDataset
 from loss import LossTotal
 from model import ObjectDetection_DCF
 from data_import import putBoundingBox
 from test import Test
+from Dataset import KITTIDataset
 
 class Train(nn.Module):
     def __init__(self, device_id):
@@ -41,7 +42,7 @@ class Train(nn.Module):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='deep continuous fusion training')
-    parser.add_argument('--data', type=str, default="carla", help='Data type, choose "carla" or "kitti"')
+    parser.add_argument('--data', type=str, default="kitti", help='Data type, choose "carla" or "kitti"')
     parser.add_argument('--cuda', type=str, default="0", help="list of cuda visible device number. you can choose 0~7 in list. [EX] --cuda 0,3,4")
     parser.add_argument('--port', type=str, default='12233', help="master port number. defaut is 12233")
     args = parser.parse_args()
@@ -61,18 +62,18 @@ if __name__ == '__main__':
         dataset_test = CarlaDataset(mode="test",want_bev_image=True)
         print("carla dataset is used for training")
     elif dataset_category =="kitti":
-        dataset = KittiDataset()
-        dataset_test = KittiDataset(mode="test")
+        dataset = KITTIDataset()
+        dataset_test = KITTIDataset(mode="test")
         print("kitti dataset is used for training")
         
     train_sampler = torch.utils.data.distributed.DistributedSampler(dataset, shuffle=True)
     train_sampler_test = torch.utils.data.distributed.DistributedSampler(dataset_test, shuffle=True)
     data_loader = torch.utils.data.DataLoader(dataset,
-                                          batch_size=4,
-                                          sampler=train_sampler)
+                                              batch_size=1,
+                                              sampler=train_sampler)
     data_loader_test = torch.utils.data.DataLoader(dataset_test,
-                                          batch_size=4,
-                                          sampler=train_sampler_test)
+                                                   batch_size=1,
+                                                   sampler=train_sampler_test)
     num_epochs = 60
     training = Train(device_id)
     test = Test(training.model)
@@ -81,13 +82,13 @@ if __name__ == '__main__':
         torch.save(training.model.state_dict(), "./saved_model/model")
         for batch_ndx, sample in enumerate(data_loader):
             image_data = sample['image'].cuda()
-            point_voxel = sample['pointcloud'].cuda()
+            point_voxel = sample['pointcloud'].cuda().float()
             reference_bboxes = sample["bboxes"].cuda()
             num_ref_bboxes = sample["num_bboxes"]
             training.one_step(point_voxel, image_data, reference_bboxes, num_ref_bboxes)
             if batch_ndx % 100 == 0:
                 print("training at ", batch_ndx, "is processed")
-            if batch_ndx % 500 == 0:
+            if (batch_ndx+1) % 500 == 0:
                 test_index = np.random.randint(len(dataset))
                 loss_value, _, _ = training.get_loss_value(point_voxel, image_data, reference_bboxes, num_ref_bboxes)
                 print("="*50)
