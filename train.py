@@ -28,7 +28,7 @@ class Train(nn.Module):
         self.optimizer = optim.Adam(self.model.parameters(), lr=lr, betas=(beta1, 0.999))
 
     def one_step(self, lidar_voxel, camera_image, object_data, num_ref_box):
-        pred_cls, pred_reg, pred_bbox_f = self.model(lidar_voxel, camera_image)
+        pred_cls, pred_reg, pred_bbox_f = self.model.forward(lidar_voxel, camera_image)
         self.loss_value = self.loss_total(object_data, num_ref_box, pred_cls, pred_reg, pred_bbox_f)
         self.optimizer.zero_grad()
         self.loss_value.backward()

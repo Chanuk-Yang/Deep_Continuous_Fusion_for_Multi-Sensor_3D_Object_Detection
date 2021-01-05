@@ -138,12 +138,13 @@ class KITTIDataset(Dataset):
         R_LWH = np.array([[f/2, 0, 0], [0, 0, f], [0, 1, 0]])
 
         Label = np.array(Label)
+        Label = np.concatenate((Label, np.zeros((len(Label), 1))), axis=-1)
         output = np.zeros_like(Label)
         HWL_BoundingBox = Label[:, 1:4]
         LWH_BoundingBox = HWL_BoundingBox[:, ::-1]
         LWH_BoundingBox = np.transpose(R_LWH.dot(np.transpose(HWL_BoundingBox[:, ::-1])))
-        Location_BoundingBox = np.transpose(R1.dot(np.transpose(Label[:, 4:-1]))) + Offset
-        orientation = Label[:, -1:]
+        Location_BoundingBox = np.transpose(R1.dot(np.transpose(Label[:, 4:-2]))) + Offset
+        orientation = Label[:, -2:-1]
         objectClass = Label[:, 0:1]
         ones = np.ones((len(objectClass), 1))
         output[:, :3] = Location_BoundingBox
@@ -342,4 +343,3 @@ if __name__ == "__main__":
     x = TF.to_pil_image(x)
     x.show()
     datatset.showBoundingBox(x, label)
-
