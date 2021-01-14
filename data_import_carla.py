@@ -9,8 +9,9 @@ import numpy as np
 import quaternion
 
 class CarlaDataset(Dataset):
-    def __init__(self, mode="train",want_bev_image=False):
+    def __init__(self, config, mode="train",want_bev_image=False):
         super(CarlaDataset, self).__init__()
+        self.config = config
         self.hdf5_files = self.load_dataset(mode = mode)
         self.hdf5_id_dict = self.getIdDict(self.hdf5_files)
         self.length = 0
@@ -31,9 +32,15 @@ class CarlaDataset(Dataset):
         C = self.get_intrinsic_parameter()
         CRT = np.matmul(C, RT)
         self.CRT_tensor = torch.tensor(CRT).permute(1,0).type(torch.float)
-        self.pc_to_voxel_indice = torch.tensor([[10,0,0,0],
-                                                [0,10,0,350],
-                                                [0,0,10,24]], dtype=torch.float).permute(1,0)
+        x_scale = int(self.config["voxel_length"] / (self.config["lidar_x_max"] - self.config["lidar_x_min"]))
+        y_scale = int(self.config["voxel_width"] / (self.config["lidar_y_max"] - self.config["lidar_y_min"]))
+        z_scale = int(self.config["voxel_channel"] / (self.config["lidar_z_max"] - self.config["lidar_z_min"]))
+        x_offset = int(-self.config["lidar_x_min"] * x_scale)
+        y_offset = int(-self.config["lidar_y_min"] * y_scale)
+        z_offset = int(-self.config["lidar_z_min"] * z_scale)
+        self.pc_to_voxel_indice = torch.tensor([[x_scale,0,0,x_offset],
+                                                [0,y_scale,0,y_offset],
+                                                [0,0,z_scale,z_offset]], dtype=torch.float).permute(1,0)
 
     def __len__(self):
         return self.length
@@ -57,7 +64,6 @@ class CarlaDataset(Dataset):
                 voxelized_lidar, point_cloud_raw, uv, num_points_raw, indices_for_bev = self.Voxelization_Projection(lidar_data)
                 if (self.want_bev_image):
                     bev_image = self.getLidarImage(indices_for_bev)
-                    # bev_image_with_bbox = putBoundingBox(bev_image, reference_bboxes)
                     return {'image': image_data,
                             'bboxes': reference_bboxes,
                             "num_bboxes": num_reference_bboxes,
@@ -77,9 +83,9 @@ class CarlaDataset(Dataset):
 
     def load_dataset(self, mode = "train"):
         if mode == "train":
-            label_path = "/media/mmc-server1/Server1/chanuk/ready_for_journal/dataset/carla_object"
+            label_path = self.config["train_data_dir"]
         elif mode == "test":
-            label_path = "/media/mmc-server1/Server1/chanuk/ready_for_journal/dataset/carla_object/test"
+            label_path = self.config["test_data_dir"]
         else:
             print ("ERROR IN MODE TYPE, PRESS [train] OR [test] !!")
             return -1
@@ -100,7 +106,7 @@ class CarlaDataset(Dataset):
     def valid_bbox(self, object_data):
         loc_x = object_data[0]
         loc_y = object_data[1]
-        if loc_x >= 0 and loc_x < 70.0 and loc_y >= -35.0 and loc_y < 35.0:
+        if loc_x >= self.config["lidar_x_min"] and loc_x < self.config["lidar_x_max"] and loc_y >= self.config["lidar_y_min"] and loc_y < self.config["lidar_y_max"]:
             return True
         return False
 
@@ -134,10 +140,10 @@ class CarlaDataset(Dataset):
         uint8 CLASSIFICATION_BARRIER=10
         uint8 CLASSIFICATION_SIGN=11
         """
-        ref_bboxes = torch.zeros(20,9)
+        ref_bboxes = torch.zeros(self.config["max_num_bbox"],9)
         i = 0
         for object_data in object_datas:
-            if i>20:
+            if i>self.config["max_num_bbox"]:
                 break
             if not self.valid_bbox(object_data):
                 continue
@@ -194,31 +200,37 @@ class CarlaDataset(Dataset):
         uv = uv_z/uv_z[-1]
         uv = uv[:2]
         uv = torch.where(uv[0] > 0, uv, torch.tensor(0).type(torch.float))
-        uv = torch.where(uv[0] < 640, uv, torch.tensor(0).type(torch.float))
+        uv = torch.where(uv[0] < self.config["image_height"], uv, torch.tensor(0).type(torch.float))
         uv = torch.where(uv[1] > 0, uv, torch.tensor(0).type(torch.float))
-        uv = torch.where(uv[1] < 480, uv, torch.tensor(0).type(torch.float))
+        uv = torch.where(uv[1] < self.config["image_width"], uv, torch.tensor(0).type(torch.float))
         indices = torch.nonzero(uv)
         indices = indices[:int(indices.shape[0]/2),1]
         filtered_points_raw = point_cloud_raw[indices]
 
-        return uv.permute(1,0)[indices], filtered_points_raw
+        return uv.permute(1,0)[indices], filtered_points_raw  
 
     def Voxelization_Projection(self, lidar_data, interpolate=True):
         # Voxelization
         lidar_data = lidar_data.permute(1,0) # 3 * N
-        lidar_data = torch.where(lidar_data[0] > 0.00, lidar_data, torch.tensor(0).type(torch.float))
-        lidar_data = torch.where(lidar_data[0] < 69.8, lidar_data, torch.tensor(0).type(torch.float))
-        lidar_data = torch.where(lidar_data[1] > -35, lidar_data, torch.tensor(0).type(torch.float))
-        lidar_data = torch.where(lidar_data[1] < 34.8, lidar_data, torch.tensor(0).type(torch.float))
-        lidar_data = torch.where(lidar_data[2] > -2.4, lidar_data, torch.tensor(0).type(torch.float))
-        lidar_data = torch.where(lidar_data[2] < 0.6, lidar_data, torch.tensor(0).type(torch.float))
+        lidar_data = torch.where(lidar_data[0] > self.config["lidar_x_min"],
+                                lidar_data, torch.tensor(0).type(torch.float))
+        lidar_data = torch.where(lidar_data[0] < self.config["lidar_x_max"] - self.config["delta"], 
+                                lidar_data, torch.tensor(0).type(torch.float))
+        lidar_data = torch.where(lidar_data[1] > self.config["lidar_y_min"], 
+                                lidar_data, torch.tensor(0).type(torch.float))
+        lidar_data = torch.where(lidar_data[1] < self.config["lidar_y_max"] - self.config["delta"], 
+                                lidar_data, torch.tensor(0).type(torch.float))
+        lidar_data = torch.where(lidar_data[2] > self.config["lidar_z_min"], 
+                                lidar_data, torch.tensor(0).type(torch.float))
+        lidar_data = torch.where(lidar_data[2] < self.config["lidar_z_max"] - self.config["delta"], 
+                                lidar_data, torch.tensor(0).type(torch.float))
         valid_indices = torch.nonzero(lidar_data)
         valid_indices = valid_indices[:int(valid_indices.shape[0]/3),1]        
         lidar_data = lidar_data.permute(1,0)[valid_indices]
         lidar_data_ = torch.cat((lidar_data, torch.ones(lidar_data.shape[0],1).type(torch.float)), dim=-1)
         if not interpolate:
             indices = torch.matmul(lidar_data_, self.pc_to_voxel_indice).type(torch.long).permute(1,0)
-            lidar_voxel = torch.zeros(32, 700, 700)
+            lidar_voxel = torch.zeros(self.config["voxel_channel"], self.config["voxel_length"], self.config["voxel_width"])
             lidar_voxel[indices[2],indices[0],indices[1]]=1
         else:
             indices_float = torch.matmul(lidar_data_, self.pc_to_voxel_indice).permute(1,0)
@@ -234,7 +246,7 @@ class CarlaDataset(Dataset):
             dx = x - x_lower.type(torch.float)
             dy = y - y_lower.type(torch.float)
             dz = z - z_lower.type(torch.float)
-            lidar_voxel = torch.zeros(32, 700, 700)
+            lidar_voxel = torch.zeros(self.config["voxel_channel"], self.config["voxel_length"], self.config["voxel_width"])
             lidar_voxel[z_lower, x_lower, y_lower] += (1-dx)*(1-dy)*(1-dz)
             lidar_voxel[z_upper, x_lower, y_lower] += (1-dx)*(1-dy)*dz
             lidar_voxel[z_lower, x_upper, y_lower] += dx*(1-dy)*(1-dz)
@@ -248,14 +260,14 @@ class CarlaDataset(Dataset):
         # Projection
         uv, filtered_points_raw = self.Projection(lidar_data)
         num_point_cloud_raw = filtered_points_raw.shape[0]
-        point_cloud_raw_tensor = torch.zeros(20000, 3)
+        point_cloud_raw_tensor = torch.zeros(self.config["max_num_pc"], 3)
         point_cloud_raw_tensor[:num_point_cloud_raw,:] = filtered_points_raw
-        uv_tensor = torch.zeros(20000, 2)
+        uv_tensor = torch.zeros(self.config["max_num_pc"], 2)
         uv_tensor[:num_point_cloud_raw,:] = uv
         return lidar_voxel, point_cloud_raw_tensor, uv_tensor, num_point_cloud_raw, indices
 
     def getLidarImage(self, indices_for_bev):
-        lidar_image = torch.zeros(3, 700, 700)
+        lidar_image = torch.zeros(3, self.config["voxel_length"], self.config["voxel_width"])
         lidar_image[:, indices_for_bev[0], indices_for_bev[1]] = 1
         return lidar_image
 

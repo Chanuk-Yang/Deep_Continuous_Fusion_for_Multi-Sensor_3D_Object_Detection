@@ -13,17 +13,19 @@ def getRect(x, y, width, height, angle):
     transformed_rect = np.dot(rect, R) + offset
     return transformed_rect
 
-def putBoundingBox(lidar_image, reference_bboxes, color=1):
+def putBoundingBox(lidar_image, reference_bboxes, config, color=1):
     lidar_image_with_bbox = lidar_image.cpu().clone().numpy()
-    # lidar_image_with_bbox = np.tile(lidar_image, (1, 1, 3))
-    # print(lidar_image_with_bbox.shape)
     img = Image.fromarray((255*lidar_image_with_bbox).astype(np.uint8))
     draw = ImageDraw.Draw(img)
+    x_scale = int(config["voxel_length"] / (config["lidar_x_max"] - config["lidar_x_min"]))
+    y_scale = int(config["voxel_width"] / (config["lidar_y_max"] - config["lidar_y_min"]))
+    x_offset = int(-config["lidar_x_min"] * x_scale)
+    y_offset = int(-config["lidar_y_min"] * y_scale)
     for bbox in reference_bboxes:
-        x = int(bbox[1]*10+350)
-        y = int(bbox[0]*10)
-        width = bbox[3]*10
-        height = bbox[4]*10
+        x = int(bbox[1]*y_scale + y_offset)
+        y = int(bbox[0]*x_scale)
+        width = bbox[3]*y_scale    # WARNING! IT SHOULD BE SAME SCALE IN X & Y
+        height = bbox[4]*x_scale   # WARNING! IT SHOULD BE SAME SCALE IN X & Y
         angle = bbox[6] - 1.57
         rect = getRect(x=x, y=y, width=width, height=height, angle=angle)
         draw.polygon([tuple(p) for p in rect], fill=color)

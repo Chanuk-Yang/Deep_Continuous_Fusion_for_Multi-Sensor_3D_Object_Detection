@@ -1,0 +1,61 @@
+#train.py configuration
+batch_size: 8
+dataset_name: carla
+cuda_visible_id: "1,2,3,4"
+port_number: "12233"
+saved_model_name: model_
+num_epoch: 60
+learning_rate: 0.0001
+beta1: 0.9
+plot_AP_graph: False
+
+
+# data_import_carla.py configuration
+train_data_dir: /media/mmc-server1/Server1/chanuk/ready_for_journal/dataset/carla_object
+test_data_dir: /media/mmc-server1/Server1/chanuk/ready_for_journal/dataset/carla_object/test
+max_num_pc: 20000
+max_num_bbox: 20
+# lidar&voxel configuration
+lidar_x_min: 0.0
+lidar_x_max: 70.0
+lidar_y_min: -30.0
+lidar_y_max: 30.0
+lidar_z_min: -2.4
+lidar_z_max: 0.8
+delta: 0.2
+voxel_length: 384 # X
+voxel_width: 256  # Y
+voxel_channel: 32 # Z
+# image configuration
+image_height: 480
+image_width: 640
+
+#loss.py configuration
+regress_type: 0
+regress_loss_gain: 3
+positive_range: 5
+pos_sample_threshold: 128
+neg_sample_threshold: 128
+
+# model.py
+anchor_bbox_feature: # also used in loss.py
+  width: 2.0
+  length: 4.0
+  height: 1.5
+  reduced_scale: 4 # MUST MATCH WITH OUT_FEATURE3 OF LIDAR_MODULE
+lidar_module:
+  out_feature1: 32
+  out_feature2: 64
+  out_feature3: 128
+  out_feature4: 192
+  out_feature5: 256
+
+  num_res_block1: 1
+  num_res_block2: 2
+  num_res_block3: 4
+  num_res_block4: 6
+  num_res_block5: 6
+
+# test.py
+nms_iou_score_theshold: 0.01
+score_threshold: 0.8
