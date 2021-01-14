@@ -6,31 +6,6 @@ import torch
 import torch.nn as nn
 from torchvision import models
 
-class AnchorBondingBoxFeature(nn.Module):
-    def __init__(self):
-        super(AnchorBondingBoxFeature,self).__init__()
-        self.f_height = int(700/4)
-        self.f_width = int(700/4)
-        self.width = 2.0
-        self.length = 4.0
-        self.height = 1.5
-        
-    def forward(self):
-        anc_x = torch.matmul(
-                torch.linspace(0, 70.0, self.f_height).view(self.f_height, 1), torch.ones(1, self.f_width)).view(1, self.f_height, self.f_width)
-        anc_y = torch.matmul(
-                torch.ones(self.f_height, 1), torch.linspace(-35.0, 35.0, self.f_width).view(1, self.f_width)).view(1, self.f_height, self.f_width)
-        ones = torch.ones(1, self.f_height, self.f_width)
-        anc_z = torch.ones(1, self.f_height, self.f_width) * (-4.5)
-        anc_w = torch.ones(1, self.f_height, self.f_width) * self.width
-        anc_l = torch.ones(1, self.f_height, self.f_width) * self.length
-        anc_h = torch.ones(1, self.f_height, self.f_width) * self.height 
-        anc_ori = torch.ones(1, self.f_height, self.f_width) * 0
-        anc_ori_90 = torch.ones(1, self.f_height, self.f_width) * 3.1415926/2
-        anc_set_1 = torch.cat((anc_x, anc_y, anc_z, anc_l, anc_w, anc_h, anc_ori), 0)
-        anc_set_2 = torch.cat((anc_x, anc_y, anc_z, anc_l, anc_w, anc_h, anc_ori_90), 0)
-        anc_set = torch.cat((anc_set_1,anc_set_2), dim=0).unsqueeze(0) # dim = [1, 2*7, self.f_height, self.f_width]
-        return anc_set
 
 class ResidualBlock(nn.Module):
     def __init__(self, in_channels, out_channels):
@@ -70,28 +45,30 @@ class ResidualBlock(nn.Module):
         return self.in_channels != self.out_channels
 
 
+class ResidualBlockModule(nn.Module):
+    def __init__(self, first_in_channel, last_out_channel, num_resblock):
+        super(ResidualBlockModule, self).__init__()
+        self.sequential = nn.Sequential()
+        for i in range(num_resblock):
+            if i == 0:
+                self.sequential.add_module("resblock_" + str(i), 
+                                            ResidualBlock(first_in_channel, last_out_channel))
+            else:
+                self.sequential.add_module("resblock_" + str(i), 
+                                            ResidualBlock(last_out_channel, last_out_channel))
+    def forward(self, x):
+        x = self.sequential(x)
+        return(x)
+
+
 class ResnetCustomed(nn.Module):
-    def __init__(self, out_feature=(32, 64, 128, 192, 256)):
+    def __init__(self, out_feature=(32, 64, 128, 192, 256), num_res_block=(1,2,4,6,6)):
         super(ResnetCustomed, self).__init__()
-        self.layer1 = nn.Sequential(ResidualBlock(out_feature[0], out_feature[0]))
-        self.layer2 = nn.Sequential(ResidualBlock(out_feature[0], out_feature[1]),
-                                    ResidualBlock(out_feature[1], out_feature[1]))
-        self.layer3 = nn.Sequential(ResidualBlock(out_feature[1], out_feature[2]),
-                                    ResidualBlock(out_feature[2], out_feature[2]),
-                                    ResidualBlock(out_feature[2], out_feature[2]),
-                                    ResidualBlock(out_feature[2], out_feature[2]))
-        self.layer4 = nn.Sequential(ResidualBlock(out_feature[2], out_feature[3]),
-                                    ResidualBlock(out_feature[3], out_feature[3]),
-                                    ResidualBlock(out_feature[3], out_feature[3]),
-                                    ResidualBlock(out_feature[3], out_feature[3]),
-                                    ResidualBlock(out_feature[3], out_feature[3]),
-                                    ResidualBlock(out_feature[3], out_feature[3]))
-        self.layer5 = nn.Sequential(ResidualBlock(out_feature[3], out_feature[4]),
-                                    ResidualBlock(out_feature[4], out_feature[4]),
-                                    ResidualBlock(out_feature[4], out_feature[4]),
-                                    ResidualBlock(out_feature[4], out_feature[4]),
-                                    ResidualBlock(out_feature[4], out_feature[4]),
-                                    ResidualBlock(out_feature[4], out_feature[4]))
+        self.layer1 = ResidualBlockModule(out_feature[0], out_feature[0], num_res_block[0])
+        self.layer2 = ResidualBlockModule(out_feature[0], out_feature[1], num_res_block[1])
+        self.layer3 = ResidualBlockModule(out_feature[1], out_feature[2], num_res_block[2])
+        self.layer4 = ResidualBlockModule(out_feature[2], out_feature[3], num_res_block[3])
+        self.layer5 = ResidualBlockModule(out_feature[3], out_feature[4], num_res_block[4])
 
     def forward(self, x):
         x = self.layer1(x)
@@ -99,19 +76,53 @@ class ResnetCustomed(nn.Module):
         x2 = self.layer3(x1)
         x3 = self.layer4(x2)
         x4 = self.layer5(x3)
-        return x4, x3, x2, x1
+        return x4, x3, x2
+
+
+class AnchorBoundingBoxFeature(nn.Module):
+    def __init__(self, config):
+        super(AnchorBoundingBoxFeature,self).__init__()
+        self.config = config
+
+        self.f_height = int(self.config["voxel_length"]/self.config["anchor_bbox_feature"]["reduced_scale"])
+        self.f_width = int(self.config["voxel_width"]/self.config["anchor_bbox_feature"]["reduced_scale"])
+        self.width = self.config["anchor_bbox_feature"]["width"]
+        self.length = self.config["anchor_bbox_feature"]["length"]
+        self.height = self.config["anchor_bbox_feature"]["height"]
+        
+    def forward(self):
+        anc_x = torch.matmul(
+                torch.linspace(self.config["lidar_x_min"], 
+                               self.config["lidar_x_max"], 
+                               self.f_height).view(self.f_height, 1), 
+                            torch.ones(1, self.f_width)).view(1, self.f_height, self.f_width)
+        anc_y = torch.matmul(
+                torch.ones(self.f_height, 1), 
+                            torch.linspace(self.config["lidar_y_min"], 
+                                            self.config["lidar_y_max"], 
+                                            self.f_width).view(1, self.f_width)).view(1, self.f_height, self.f_width)
+        anc_z = torch.ones(1, self.f_height, self.f_width) * (-4.5)
+        anc_w = torch.ones(1, self.f_height, self.f_width) * self.width
+        anc_l = torch.ones(1, self.f_height, self.f_width) * self.length
+        anc_h = torch.ones(1, self.f_height, self.f_width) * self.height 
+        anc_ori = torch.ones(1, self.f_height, self.f_width) * 0
+        anc_ori_90 = torch.ones(1, self.f_height, self.f_width) * 3.1415926/2
+        anc_set_1 = torch.cat((anc_x, anc_y, anc_z, anc_l, anc_w, anc_h, anc_ori), 0)
+        anc_set_2 = torch.cat((anc_x, anc_y, anc_z, anc_l, anc_w, anc_h, anc_ori_90), 0)
+        anc_set = torch.cat((anc_set_1,anc_set_2), dim=0) # dim = [2*7, self.f_height, self.f_width]
+        return anc_set
 
 
 class OffsettoBbox(nn.Module):
-    def __init__(self):
+    def __init__(self, config):
         super(OffsettoBbox, self).__init__()
-        self.anchor_bbox_feature = AnchorBondingBoxFeature()
+        self.anchor_bbox_feature = AnchorBoundingBoxFeature(config)
         
     def forward(self, x):
         """
         x: x_reg [b,num_anc*7,wid,hei]
         """
-        anc_set = self.anchor_bbox_feature().cuda()
+        anc_set = self.anchor_bbox_feature().cuda().unsqueeze(0)
         pred_xy_1 = x[:,:2,:,:] * torch.sqrt(torch.pow(anc_set[:,3:4,:,:],2) + torch.pow(anc_set[:,4:5,:,:],2)) + anc_set[:,:2,:,:]
         pred_z_1 = x[:,2:3,:,:] * (anc_set[:,5:6,:,:]) + anc_set[:,2:3,:,:]
 
@@ -127,9 +138,9 @@ class OffsettoBbox(nn.Module):
         
 
 class LidarBackboneNetwork(nn.Module):
-    def __init__(self, out_feature=(32, 64, 128, 192, 256),Num_anchor = 2):
+    def __init__(self, out_feature=(32, 64, 128, 192, 256), num_res_block=(1,2,4,6,6), Num_anchor = 2):
         super(LidarBackboneNetwork, self).__init__()
-        self.backbone = ResnetCustomed(out_feature)
+        self.backbone = ResnetCustomed(out_feature, num_res_block)
         self.num_anchor = Num_anchor
         
         # FPN
@@ -137,7 +148,7 @@ class LidarBackboneNetwork(nn.Module):
         self.downconv1 = nn.Conv2d(out_feature[-1], out_feature[-2], kernel_size=(1, 1), stride=(1, 1), bias=False)
         self.upscale1 = nn.UpsamplingBilinear2d(scale_factor=2)
         self.latconv2 = nn.Conv2d(out_feature[-3], out_feature[-2], kernel_size=(1, 1), stride=(1, 1), bias=False)
-        self.upscale2 = nn.UpsamplingBilinear2d(size=175) # NEED TO GENERALIZE IN BEV SIZE
+        self.upscale2 = nn.UpsamplingBilinear2d(scale_factor=2) # NEED TO GENERALIZE IN BEV SIZE
         self.conv3 = nn.Conv2d(out_feature[-2], out_feature[-2], kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
         
         self.classconv = nn.Conv2d(out_feature[-2], Num_anchor*2, kernel_size=(1, 1), stride=(1, 1), bias=False)
@@ -146,7 +157,7 @@ class LidarBackboneNetwork(nn.Module):
         self.bbox3dconv = nn.Conv2d(out_feature[-2], Num_anchor*7, kernel_size=(1, 1), stride=(1, 1), bias=False)
 
     def forward(self, x):
-        x4, x3, x2, x1 = self.backbone(x)
+        x4, x3, x2 = self.backbone(x)
         x3 = self.latconv1(x3)
         x3_ = self.upscale1(self.downconv1(x4))
         x3 += x3_
@@ -163,14 +174,26 @@ class LidarBackboneNetwork(nn.Module):
 
 
 class ObjectDetection_DCF(nn.Module):
-    def __init__(self):
+    def __init__(self, config):
         super(ObjectDetection_DCF, self).__init__()
-        self.offset_to_bbox = OffsettoBbox()
-        self.lidar_backbone = LidarBackboneNetwork()
-        self.image_backbone = models.resnet18(pretrained=True)
+        self.offset_to_bbox = OffsettoBbox(config)
+        lm_config = config["lidar_module"]
+        out_feature = (lm_config["out_feature1"], 
+                       lm_config["out_feature2"],
+                       lm_config["out_feature3"],
+                       lm_config["out_feature4"],
+                       lm_config["out_feature5"])
+        num_resblock = (lm_config["num_res_block1"], 
+                        lm_config["num_res_block2"],
+                        lm_config["num_res_block3"],
+                        lm_config["num_res_block4"],
+                        lm_config["num_res_block5"])
+        self.lidar_backbone = LidarBackboneNetwork(out_feature, num_resblock)
+        # self.image_backbone = models.resnet18(pretrained=True)
 
     def forward(self, x_lidar, x_image):
         lidar_pred_cls, lidar_pred_reg = self.lidar_backbone(x_lidar)
+        # lidar_pred_cls = self.lidar_backbone(x_lidar)
         # image_ = self.image_backbone(x_image)
         lidar_pred_bbox = self.offset_to_bbox(lidar_pred_reg)
         """
@@ -178,7 +201,7 @@ class ObjectDetection_DCF(nn.Module):
         1. make continuous fusion layer from image
         2. add with lidar feature
         """
-        return lidar_pred_cls, lidar_pred_reg, lidar_pred_bbox
+        return torch.cat((lidar_pred_cls, lidar_pred_reg, lidar_pred_bbox), dim = 1) #, lidar_pred_bbox
 
 
 # Press the green button in the gutter to run the script.

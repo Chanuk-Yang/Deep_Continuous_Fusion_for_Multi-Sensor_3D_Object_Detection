@@ -26,23 +26,21 @@ from separation_axis_theorem import get_vertice_rect, separating_axis_theorem
 
 
 class Test:
-    def __init__(self, pre_trained_net):
+    def __init__(self, pre_trained_net, config):
         """
         configuration
-        
-        plot_bev_image (False)
-        selet_bbox_threshold (50)
         nms_iou_score_theshold (0.01)
         plot_AP_graph (False)
         """
         self.net = pre_trained_net
+        self.config = config
         self.net.eval()
         self.num_TP_set = {}
         self.num_TP_set_per_predbox = []
         self.num_T = 0
         self.num_P = 0
         self.IOU_threshold = [0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9, 0.95]
-        self.loss_total = LossTotal()
+        self.loss_total = LossTotal(config)
         for iou_threshold in self.IOU_threshold:
             self.num_TP_set[iou_threshold] = 0
 
@@ -69,20 +67,21 @@ class Test:
             save_image(self.pred_cls[b, 1, :, :], dir+"/epoch_{}/{}_in_{}_positive_image.png".format(epoch,i,b ))
             save_image(self.pred_cls[b, 0, :, :], dir+"/epoch_{}/{}_in_{}_negative_image.png".format(epoch,i,b))
             bev_image_ = 0.5*bev_image[b].permute(1,2,0)
-            bev_image_with_bbox = putBoundingBox(bev_image_, self.refined_bbox[b], color="green").permute(2,0,1).type(torch.float)
+            bev_image_with_bbox = putBoundingBox(bev_image_, self.refined_bbox[b], self.config, color="green").permute(2,0,1).type(torch.float)
             save_image(bev_image_with_bbox, dir+"/epoch_{}/{}_in_{}_bev_image_with_predbbox.png".format(epoch,i,b))
             
-            bev_image_with_bbox = putBoundingBox(bev_image_, ref_bboxes[b,:num_ref_bboxes[b]], color="red").permute(2,0,1).type(torch.float)
+            bev_image_with_bbox = putBoundingBox(bev_image_, ref_bboxes[b,:num_ref_bboxes[b]], self.config, color="red").permute(2,0,1).type(torch.float)
             save_image(bev_image_with_bbox, dir+"/epoch_{}/{}_in_{}_bev_image_with_refbbox.png".format(epoch,i,b))
 
-    def get_eval_value_onestep(self, lidar_image, camera_image, ref_bboxes, num_ref_bboxes):
+    def get_eval_value_onestep(self, lidar_voxel, camera_image, ref_bboxes, num_ref_bboxes):
         
-        pred_cls, pred_reg, pred_bbox_f = self.net(lidar_image, camera_image)
+        pred = self.net(lidar_voxel, camera_image)
+        pred_cls, pred_reg, pred_bbox_f = torch.split(pred,[4, 14, 14], dim=1)
         self.pred_cls = pred_cls.cpu().clone().detach()
         pred_bbox_f = pred_bbox_f.cpu().clone().detach()
-        self.loss_value = self.loss_total(ref_bboxes.cuda(), num_ref_bboxes, pred_cls, pred_reg, pred_bbox_f)
-        pred_bboxes = self.get_bboxes(self.pred_cls, pred_bbox_f, score_threshold=0.8) # shape: b * list[tensor(N * 7)]
-        # self.refined_bbox = self.NMS_IOU(pred_bboxes, nms_iou_score_theshold=0.01) # shape: b * list[N *list[tensor(7)]]
+        self.loss_value = self.loss_total(ref_bboxes.cuda(), num_ref_bboxes, pred_cls, pred_reg)
+        pred_bboxes = self.get_bboxes(self.pred_cls, pred_bbox_f, score_threshold=self.config["score_threshold"]) # shape: b * list[tensor(N * 7)]
+        # self.refined_bbox = self.NMS_IOU(pred_bboxes, nms_iou_score_theshold=self.config["nms_iou_threshold"]) # shape: b * list[N *list[tensor(7)]]
         self.refined_bbox = self.NMS_SAT(pred_bboxes) # shape: b * list[N *list[tensor(7)]]
         self.precision_recall_singleshot(self.refined_bbox, ref_bboxes) # single batch
     
@@ -213,8 +212,8 @@ class Test:
         total_precision = {}
         total_recall = {}
         for iou_threshold in self.IOU_threshold:
-            total_precision[iou_threshold] = self.num_TP_set[iou_threshold] / (self.num_P + 0.00001)
-            total_recall[iou_threshold] = self.num_TP_set[iou_threshold] / (self.num_T + 0.00001)
+            total_precision[iou_threshold] = self.num_TP_set[iou_threshold] / (self.num_P + 0.01)
+            total_recall[iou_threshold] = self.num_TP_set[iou_threshold] / (self.num_T + 0.01)
         # print("Total Precision: ", total_precision)
         # print("Total Recall: ", total_recall)
         precisions = {}
