@@ -28,7 +28,7 @@ class Train(nn.Module):
         self.optimizer = optim.Adam(self.model.parameters(), lr=lr, betas=(beta1, 0.999))
 
     def one_step(self, lidar_voxel, camera_image, object_data, num_ref_box):
-        pred_cls, pred_reg, pred_bbox_f = self.model.forward(lidar_voxel, camera_image)
+        pred_cls, pred_reg, pred_bbox_f = self.model(lidar_voxel, camera_image)
         self.loss_value = self.loss_total(object_data, num_ref_box, pred_cls, pred_reg, pred_bbox_f)
         self.optimizer.zero_grad()
         self.loss_value.backward()
@@ -85,6 +85,7 @@ if __name__ == '__main__':
             point_voxel = sample['pointcloud'].cuda().float()
             reference_bboxes = sample["bboxes"].cuda()
             num_ref_bboxes = sample["num_bboxes"]
+            print(1)
             training.one_step(point_voxel, image_data, reference_bboxes, num_ref_bboxes)
             if batch_ndx % 100 == 0:
                 print("training at ", batch_ndx, "is processed")

@@ -20,7 +20,6 @@ class AnchorBondingBoxFeature(nn.Module):
                 torch.linspace(0, 70.0, self.f_height).view(self.f_height, 1), torch.ones(1, self.f_width)).view(1, self.f_height, self.f_width)
         anc_y = torch.matmul(
                 torch.ones(self.f_height, 1), torch.linspace(-35.0, 35.0, self.f_width).view(1, self.f_width)).view(1, self.f_height, self.f_width)
-        ones = torch.ones(1, self.f_height, self.f_width)
         anc_z = torch.ones(1, self.f_height, self.f_width) * (-4.5)
         anc_w = torch.ones(1, self.f_height, self.f_width) * self.width
         anc_l = torch.ones(1, self.f_height, self.f_width) * self.length
@@ -99,7 +98,7 @@ class ResnetCustomed(nn.Module):
         x2 = self.layer3(x1)
         x3 = self.layer4(x2)
         x4 = self.layer5(x3)
-        return x4, x3, x2, x1
+        return x4, x3, x2
 
 
 class OffsettoBbox(nn.Module):
@@ -146,7 +145,7 @@ class LidarBackboneNetwork(nn.Module):
         self.bbox3dconv = nn.Conv2d(out_feature[-2], Num_anchor*7, kernel_size=(1, 1), stride=(1, 1), bias=False)
 
     def forward(self, x):
-        x4, x3, x2, x1 = self.backbone(x)
+        x4, x3, x2 = self.backbone(x)
         x3 = self.latconv1(x3)
         x3_ = self.upscale1(self.downconv1(x4))
         x3 += x3_
@@ -167,7 +166,7 @@ class ObjectDetection_DCF(nn.Module):
         super(ObjectDetection_DCF, self).__init__()
         self.offset_to_bbox = OffsettoBbox()
         self.lidar_backbone = LidarBackboneNetwork()
-        self.image_backbone = models.resnet18(pretrained=True)
+        # self.image_backbone = models.resnet18(pretrained=True)
 
     def forward(self, x_lidar, x_image):
         lidar_pred_cls, lidar_pred_reg = self.lidar_backbone(x_lidar)

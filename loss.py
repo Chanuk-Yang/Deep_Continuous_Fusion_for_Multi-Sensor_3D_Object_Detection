@@ -143,18 +143,18 @@ def getRegSum(index, positive_position_list, reference_bboxes, predicted_regress
 
         box_list = []
         abox_list = []
-        bbox_real_list = []
+        # bbox_real_list = []
         for positive_position in positive_position_list[index[idx]]:  ### for loop reduction ###
             box_list.append(predicted_regress_feature[:,positive_position[0], positive_position[1]])
             abox_list.append(anchor[:,:, positive_position[0], positive_position[1]]) #[2,7]
-            bbox_real_list.append(pred_bbox_f[:, positive_position[0], positive_position[1]])
+            # bbox_real_list.append(pred_bbox_f[:, positive_position[0], positive_position[1]])
 
         if len(box_list) == 0:
             continue
         predicted_box = torch.stack(box_list, dim=0) #[N,14], offset bbox set
         anchor_box = torch.stack(abox_list, dim=0) #[N,2,7], original bbox set
         N, num_anchor, char = anchor_box.shape
-        bbox_real = torch.stack(bbox_real_list, dim=0).reshape(N,num_anchor,char)
+        # bbox_real = torch.stack(bbox_real_list, dim=0).reshape(N,num_anchor,char)
         
         loss = LossReg(reference_box, predicted_box, anchor_box).cpu()
         reg_loss +=loss
