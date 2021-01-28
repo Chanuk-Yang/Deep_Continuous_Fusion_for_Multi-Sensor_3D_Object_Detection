@@ -13,6 +13,7 @@ from data_import_carla import CarlaDataset
 from loss import LossTotal
 from model import ObjectDetection_DCF
 from test import Test
+from KITTIDataset import KITTIDataset
 
 class Train(nn.Module):
     def __init__(self, config):
@@ -43,6 +44,7 @@ class Train(nn.Module):
 
 
 if __name__ == '__main__':
+    print(torch.cuda.is_available())
     CONFIG_PATH = "./config/"
     config_name = "config_carla.yaml"
     with open(os.path.join(CONFIG_PATH, config_name)) as file:
@@ -59,8 +61,8 @@ if __name__ == '__main__':
         dataset_test = CarlaDataset(config, mode="test", want_bev_image=True)
         print("carla dataset is used for training")
     elif config["dataset_name"] =="kitti":
-        dataset = KittiDataset()
-        dataset_test = KittiDataset(mode="test")
+        dataset = KITTIDataset()
+        dataset_test = KITTIDataset(mode="test")
         print("kitti dataset is used for training")
         
     train_sampler = torch.utils.data.distributed.DistributedSampler(dataset, shuffle=True)

@@ -37,7 +37,7 @@ class LossTotal(nn.Module):
         self.loss_class = LossClass()
         self.loss_regress = LossReg()
         self.anchor_bbox_feature = AnchorBoundingBoxFeature(config)
-        anchor_set = self.anchor_bbox_feature().cuda()
+        anchor_set = self.anchor_bbox_feature().to(torch.device("cuda:0"))
         anchor_set_shape = anchor_set.shape
         self.anchor_set = anchor_set.reshape(2,int(anchor_set_shape[0]/2),
                                             anchor_set_shape[1],anchor_set_shape[2])

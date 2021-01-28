@@ -1,7 +1,7 @@
 #train.py configuration
-batch_size: 8
-dataset_name: carla
-cuda_visible_id: "1,2,3,4"
+batch_size: 1
+dataset_name: kitti
+cuda_visible_id: "0"
 port_number: "12233"
 saved_model_name: model_
 num_epoch: 60
@@ -27,8 +27,8 @@ voxel_length: 384 # X
 voxel_width: 256  # Y
 voxel_channel: 32 # Z
 # image configuration
-image_height: 480
-image_width: 640
+image_height: 375
+image_width: 1242
 
 #loss.py configuration
 regress_type: 0
